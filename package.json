@@ -25,11 +25,15 @@
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
+  "overrides": {
+    "postcss": "8.5.23",
+    "sharp": "0.35.3"
+  },
   "dependencies": {
     "@workos-inc/authkit-nextjs": "latest",
     "@workos-inc/node": "latest",
     "@zxing/browser": "0.1.5",
-    "next": "latest",
+    "next": "^16.2.11",
     "node-pg-migrate": "^9.0.0",
     "pg": "latest",
     "react": "latest",

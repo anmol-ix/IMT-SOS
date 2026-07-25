@@ -62,6 +62,10 @@
 
 - WorkOS provider-outage and failed-provider behavior still require a controlled staging exercise.
 - Railway staging deployment, Singapore colocation, private networking, PITR restore and seven-day cost evidence require a valid Railway login and project access.
-- `npm audit` currently reports a moderate PostCSS advisory through the latest stable Next.js package. The advisory has no stable dependency fix in the installed graph. Application CSS is repository-controlled rather than user supplied, reducing reachability, but the dependency must be rechecked before release and upgraded when the stable fix is available. High or critical production advisories fail CI.
+- High and critical production advisories fail CI. Until the latest stable
+  Next.js package repins its transitive PostCSS and Sharp dependencies, the
+  application explicitly overrides them to the current patched releases. The
+  complete audit, build and browser checks must pass whenever those overrides
+  change, and they should be removed once Next.js carries equivalent versions.
 
 Do not place real workbook or customer data in development, CI or staging.
