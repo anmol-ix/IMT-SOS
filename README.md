@@ -67,3 +67,13 @@ WORKOS_USER_ID=user_... OWNER_DISPLAY_NAME=Anmol npm run db:provision-owner
 Never expose `MIGRATION_DATABASE_URL` or `DATABASE_ADMIN_URL` to the running application or browser.
 
 Open `http://127.0.0.1:4173` after `npm run dev`. Business owners land on the local control dashboard; operators land on the selling screen. See [OPERATIONS.md](./OPERATIONS.md) only when hosted deployment becomes relevant.
+
+## Railway staging
+
+The Railway build does not require database or WorkOS secrets. Deployment does:
+the pre-deploy phase validates its environment, optionally bootstraps the
+restricted PostgreSQL roles on the first deployment, and then applies migrations.
+The server listens on Railway's assigned `PORT`, and Railway will route traffic
+only after the database-backed readiness check succeeds.
+
+Follow [the Railway staging deployment guide](./docs/RAILWAY_DEPLOYMENT.md).

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 import { allocateWeightedAverageCost } from "./inventory-costing";
 import {
   minimumPriceForRole,
@@ -257,7 +257,7 @@ export async function requestPriceApproval(
 
 export async function listPriceApprovals(user: CurrentUser): Promise<PriceApprovalView[]> {
   requireRole(user.role, ["BUSINESS_OWNER"]);
-  const result = await database.query<ApprovalRow>(
+  const result = await getDatabase().query<ApprovalRow>(
     `${approvalSql}
      WHERE r.business_id = $1 AND r.status = 'PENDING' AND r.expires_at > now()
      ORDER BY r.created_at`,
@@ -270,7 +270,7 @@ export async function getPriceApproval(
   user: CurrentUser,
   id: string,
 ): Promise<PriceApprovalView> {
-  const result = await database.query<ApprovalRow>(
+  const result = await getDatabase().query<ApprovalRow>(
     `${approvalSql}
      WHERE r.id = $1 AND r.business_id = $2
        AND ($3 = 'BUSINESS_OWNER' OR r.requester_user_id = $4)`,

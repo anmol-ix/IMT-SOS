@@ -37,7 +37,7 @@ jobs:
       WORKOS_API_KEY: sk_test_ci_placeholder
       WORKOS_CLIENT_ID: client_ci_placeholder
       WORKOS_COOKIE_PASSWORD: ci-placeholder-cookie-password-32-chars
-      NEXT_PUBLIC_WORKOS_REDIRECT_URI: http://127.0.0.1:3000/auth/callback
+      WORKOS_REDIRECT_URI: http://127.0.0.1:3000/auth/callback
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

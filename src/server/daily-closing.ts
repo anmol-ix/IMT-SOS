@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 import { IdempotencyConflictError } from "./proof-command";
 import {
   calculateDailyClosing,
@@ -277,6 +277,7 @@ export async function getDailyClosingView(
   user: CurrentUser,
 ): Promise<DailyClosingView> {
   requireRole(user.role, ["BUSINESS_OWNER"]);
+  const database = getDatabase();
   const location = await getLocation(database, user.businessId);
   const [current, latestClosing] = await Promise.all([
     getSnapshot(database, user.businessId, location),

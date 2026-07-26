@@ -1,7 +1,7 @@
 import "server-only";
 
 import { withAuth } from "@workos-inc/authkit-nextjs";
-import { database } from "@/server/database";
+import { getDatabase } from "@/server/database";
 import { APP_ROLES, type AppRole, ForbiddenError, requireRole } from "./roles";
 
 export type CurrentUser = {
@@ -26,7 +26,7 @@ export async function getCurrentUser(): Promise<CurrentUser> {
   const session = await withAuth();
   if (!session.user) throw new UnauthenticatedError();
 
-  const result = await database.query<{
+  const result = await getDatabase().query<{
     id: string;
     business_id: string;
     workos_user_id: string;

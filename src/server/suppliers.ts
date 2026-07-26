@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 
 export type Supplier = {
   id: string;
@@ -44,7 +44,7 @@ export class SupplierAlreadyExistsError extends Error {
 
 export async function listSuppliers(user: CurrentUser): Promise<Supplier[]> {
   requireRole(user.role, ["BUSINESS_OWNER", "TRUSTED_OPERATOR"]);
-  const result = await database.query<SupplierRow>(
+  const result = await getDatabase().query<SupplierRow>(
     `SELECT id, name, phone_normalized, notes
        FROM suppliers
       WHERE business_id = $1 AND status = 'ACTIVE'

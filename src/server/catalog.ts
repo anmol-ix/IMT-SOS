@@ -1,6 +1,6 @@
 import "server-only";
 
-import { database } from "./database";
+import { getDatabase } from "./database";
 import type { CurrentUser } from "./auth/current-user";
 
 export type SellableProduct = {
@@ -28,7 +28,7 @@ export async function searchSellableProducts(
   user: CurrentUser,
   query: string,
 ): Promise<SellableProduct[]> {
-  const result = await database.query<{
+  const result = await getDatabase().query<{
     id: string;
     name: string;
     variant_name: string | null;

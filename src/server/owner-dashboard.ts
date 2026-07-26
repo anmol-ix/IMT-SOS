@@ -2,7 +2,7 @@ import "server-only";
 
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database } from "./database";
+import { getDatabase } from "./database";
 
 export type OwnerDashboard = {
   asOf: string;
@@ -70,6 +70,7 @@ export async function getOwnerDashboard(
   user: CurrentUser,
 ): Promise<OwnerDashboard> {
   requireRole(user.role, ["BUSINESS_OWNER"]);
+  const database = getDatabase();
 
   const [
     businessDate,

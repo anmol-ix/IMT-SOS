@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import type { CurrentUser } from "./auth/current-user";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 
 export type Customer = {
   id: string;
@@ -63,7 +63,7 @@ function mapCustomer(row: CustomerRow): Customer {
 
 export async function searchCustomers(user: CurrentUser, query: string): Promise<Customer[]> {
   const normalized = normalizePhone(query);
-  const result = await database.query<CustomerRow>(
+  const result = await getDatabase().query<CustomerRow>(
     `${customerSelect}
      WHERE c.business_id = $1 AND c.status = 'ACTIVE'
        AND ($2 = '' OR ($3 <> '' AND c.phone_normalized LIKE '%' || $3 || '%')

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { CurrentUser } from "./auth/current-user";
-import { database } from "./database";
+import { getDatabase } from "./database";
 
 export type ActivityFilter = "ALL" | "SALES" | "APPROVALS";
 
@@ -50,7 +50,7 @@ export type ActivityItem =
     };
 
 async function sales(user: CurrentUser): Promise<ActivityItem[]> {
-  const result = await database.query<{
+  const result = await getDatabase().query<{
     id: string;
     sale_number: string;
     total_paise: string;
@@ -116,7 +116,7 @@ async function sales(user: CurrentUser): Promise<ActivityItem[]> {
 }
 
 async function priceApprovals(user: CurrentUser): Promise<ActivityItem[]> {
-  const result = await database.query<{
+  const result = await getDatabase().query<{
     id: string;
     happened_at: Date;
     requested_at: Date;
@@ -173,7 +173,7 @@ async function priceApprovals(user: CurrentUser): Promise<ActivityItem[]> {
 }
 
 async function guestApprovals(user: CurrentUser): Promise<ActivityItem[]> {
-  const result = await database.query<{
+  const result = await getDatabase().query<{
     id: string;
     happened_at: Date;
     requested_at: Date;

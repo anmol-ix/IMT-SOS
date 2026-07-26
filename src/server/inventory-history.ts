@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { CurrentUser } from "./auth/current-user";
-import { database } from "./database";
+import { getDatabase } from "./database";
 import type { StockCondition } from "@/shared/stock-adjustment-policy";
 
 export type InventoryMovementView = {
@@ -52,6 +52,7 @@ export async function getInventoryHistory(
   user: CurrentUser,
   variantId: string,
 ): Promise<InventoryHistoryView> {
+  const database = getDatabase();
   const product = await database.query<{
     id: string;
     name: string;

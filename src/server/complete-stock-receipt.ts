@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 import { IdempotencyConflictError } from "./proof-command";
 import { ProductUnavailableError } from "./complete-sale";
 import { roundedAverageUnitCost } from "./inventory-costing";
@@ -709,7 +709,7 @@ export async function listStockReceiptDrafts(
   user: CurrentUser,
 ): Promise<StockReceiptDraft[]> {
   requireRole(user.role, ["BUSINESS_OWNER", "TRUSTED_OPERATOR"]);
-  const result = await database.query<DraftRow>(
+  const result = await getDatabase().query<DraftRow>(
     `${draftSql}
      WHERE r.business_id = $1 AND r.status = 'DRAFT'
        AND ($2::boolean OR r.created_by = $3)

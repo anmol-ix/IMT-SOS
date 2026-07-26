@@ -96,6 +96,15 @@ Complete:
 - Immutable, idempotent closing records and linked correction revisions
 - Automatic `Needs reconciliation` status when sales complete after a closing
 
+## M3.5 — Railway deployment readiness — Complete
+
+- Environment-independent Railpack build
+- Runtime-only database initialization with a strict readiness check
+- Railway-assigned port and public interface binding
+- Validated pre-deploy environment and automatic schema migrations
+- Explicit, removable first-deployment database-role bootstrap
+- GitHub-triggered staging deployment configuration and operator guide
+
 ## M4 — PWA and offline operation — Not started
 
 - Installable PWA, cached catalogue and queued normal sales
@@ -106,9 +115,11 @@ Complete:
 - Import mapping, validation/quarantine and exception report
 - Opening movements, customer import, reconciliation and rollback rehearsal
 
-## M6 — Railway deployment — Deferred
+## M6 — Railway staging validation — Not started
 
-Deployment begins only after the local Phase 1 flows and real-data migration rehearsal pass.
+The application can now be deployed safely with synthetic staging data. Private
+database connectivity, WorkOS callback, owner access, latency, PITR restore and
+seven-day cost evidence must still pass before real business data are considered.
 
 ## Later phase
 

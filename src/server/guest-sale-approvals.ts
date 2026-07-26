@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 import {
   CUSTOMER_PROMPT_THRESHOLD_PAISE,
   guestApprovalCartHash,
@@ -193,7 +193,7 @@ export async function requestGuestSaleApproval(
 
 export async function listGuestSaleApprovals(user: CurrentUser): Promise<GuestSaleApproval[]> {
   requireRole(user.role, ["BUSINESS_OWNER"]);
-  const result = await database.query<GuestApprovalRow>(
+  const result = await getDatabase().query<GuestApprovalRow>(
     `${approvalSql}
      WHERE r.business_id = $1 AND r.status = 'PENDING' AND r.expires_at > now()
      ORDER BY r.created_at`,
@@ -206,7 +206,7 @@ export async function getGuestSaleApproval(
   user: CurrentUser,
   id: string,
 ): Promise<GuestSaleApproval> {
-  const result = await database.query<GuestApprovalRow>(
+  const result = await getDatabase().query<GuestApprovalRow>(
     `${approvalSql}
      WHERE r.id = $1 AND r.business_id = $2
        AND ($3 = 'BUSINESS_OWNER' OR r.requester_user_id = $4)`,

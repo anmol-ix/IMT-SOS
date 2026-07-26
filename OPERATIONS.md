@@ -4,6 +4,9 @@
 
 Use a separate Railway staging environment, PostgreSQL service and WorkOS staging environment. Use only synthetic data.
 
+Use [the Railway staging deployment guide](./docs/RAILWAY_DEPLOYMENT.md) for
+the exact service variables and first-deployment sequence.
+
 1. In WorkOS staging, configure the exact callback URL `https://<staging-domain>/auth/callback` and logout URL. Keep unrestricted application access disabled.
 2. In Railway, place the application and PostgreSQL service in Singapore. Use the PostgreSQL private-network URL between services.
 3. Generate different strong passwords for `itsmytoy_migrator` and `itsmytoy_runtime`.

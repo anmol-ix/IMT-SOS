@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
-import { database, inTransaction } from "./database";
+import { getDatabase, inTransaction } from "./database";
 import { IdempotencyConflictError } from "./proof-command";
 import {
   calculateCountedInventoryValue,
@@ -344,7 +344,7 @@ export async function listPendingStockAdjustments(
   user: CurrentUser,
 ): Promise<StockAdjustmentView[]> {
   requireRole(user.role, ["BUSINESS_OWNER"]);
-  const result = await database.query<AdjustmentRow>(
+  const result = await getDatabase().query<AdjustmentRow>(
     `${adjustmentSql}
      WHERE a.business_id = $1 AND a.status = 'REQUESTED'
      ORDER BY a.requested_at`,
