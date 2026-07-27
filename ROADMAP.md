@@ -1,6 +1,6 @@
 # ItsMyToy Local Product Roadmap
 
-Last verified: 25 July 2026
+Last verified: 27 July 2026
 
 Status means implemented and locally verified, not only designed.
 
@@ -105,9 +105,11 @@ Complete:
 - Explicit, removable first-deployment database-role bootstrap
 - GitHub-triggered staging deployment configuration and operator guide
 
-## M4 — PWA and offline operation — Not started
+## M4 — PWA and offline operation — In progress
 
-- Installable PWA, cached catalogue and queued normal sales
+- M4.1: installable PWA shell, platform icons, connectivity status and
+  non-sensitive install-asset caching
+- Next: cached catalogue and queued normal sales
 - Sync conflicts, cached-stock warning and device visibility
 
 ## M5 — Workbook migration — Not started

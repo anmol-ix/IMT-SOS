@@ -1,12 +1,27 @@
 import type { Metadata, Viewport } from "next";
 import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
+import PwaControls from "./PwaControls";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ItsMyToy Operations",
   description: "Production foundation for controlled shop operations.",
   applicationName: "ItsMyToy Operations",
-  icons: { icon: "/icon.svg" },
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "ItsMyToy",
+  },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
@@ -19,7 +34,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <AuthKitProvider>{children}</AuthKitProvider>
+        <AuthKitProvider>
+          {children}
+          <PwaControls />
+        </AuthKitProvider>
       </body>
     </html>
   );

@@ -13,6 +13,6 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/v1/health/live|api/v1/health/ready).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|icon.svg|icon-192.png|icon-512.png|apple-touch-icon.png|api/v1/health/live|api/v1/health/ready).*)",
   ],
 };

@@ -63,7 +63,7 @@ export default async function Home() {
         </p>
         <div className="status" aria-label="Foundation status">
           <span className="dot" aria-hidden="true" />
-          <span>Application online</span>
+          <span>Application ready</span>
         </div>
         <a className="button" href="/sign-in">Sign in to start selling</a>
       </section>
