@@ -1,7 +1,16 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  readOfflineCatalog,
+  saveOfflineCatalog,
+} from "@/client/offline-catalog";
+import { useOnlineStatus } from "@/client/use-online-status";
+import {
+  searchOfflineCatalog,
+  type OfflineCatalogSnapshot,
+} from "@/shared/offline-catalog";
 import BarcodeScanner from "./BarcodeScanner";
 
 type Product = {
@@ -21,6 +30,7 @@ type Product = {
 };
 
 type Props = {
+  cacheKey: string;
   displayName: string;
   role: "BUSINESS_OWNER" | "TRUSTED_OPERATOR" | "STORE_OPERATOR";
   initialProducts: Product[];
@@ -100,6 +110,12 @@ const receiptDate = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
 });
 
+const catalogDate = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Kolkata",
+});
+
 function formatMoney(paise: number) {
   return money.format(paise / 100);
 }
@@ -152,7 +168,13 @@ function roleLabel(role: Props["role"]) {
   return "Store operator";
 }
 
-export default function SellWorkspace({ displayName, role, initialProducts }: Props) {
+export default function SellWorkspace({
+  cacheKey,
+  displayName,
+  role,
+  initialProducts,
+}: Props) {
+  const online = useOnlineStatus();
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [selected, setSelected] = useState<Product | null>(null);
@@ -190,6 +212,40 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
   const [exceptionMode, setExceptionMode] = useState(false);
   const [exceptionReason, setExceptionReason] = useState("CUSTOMER_SERVICE_RECOVERY");
   const [exceptionNote, setExceptionNote] = useState("");
+  const [offlineCatalog, setOfflineCatalog] =
+    useState<OfflineCatalogSnapshot | null>(null);
+  const [catalogStatus, setCatalogStatus] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
+
+  const refreshOfflineCatalog = useCallback(async () => {
+    if (!navigator.onLine) return;
+    try {
+      const response = await fetch("/api/v1/catalog/offline");
+      if (!response.ok) throw new Error("Catalogue snapshot unavailable");
+      const snapshot = await response.json() as OfflineCatalogSnapshot;
+      await saveOfflineCatalog(cacheKey, snapshot);
+      setOfflineCatalog(snapshot);
+      setCatalogStatus("ready");
+    } catch {
+      const cached = await readOfflineCatalog(cacheKey).catch(() => null);
+      setOfflineCatalog(cached);
+      setCatalogStatus(cached ? "ready" : "unavailable");
+    }
+  }, [cacheKey]);
+
+  useEffect(() => {
+    if (online) {
+      queueMicrotask(() => void refreshOfflineCatalog());
+      return;
+    }
+    void readOfflineCatalog(cacheKey)
+      .then((cached) => {
+        setOfflineCatalog(cached);
+        setCatalogStatus(cached ? "ready" : "unavailable");
+      })
+      .catch(() => setCatalogStatus("unavailable"));
+  }, [cacheKey, online, refreshOfflineCatalog]);
 
   function resetGuestDecision() {
     setGuestApproval(null);
@@ -236,10 +292,39 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
     setError("");
   }
 
+  async function findCachedProducts(search: string, liveFallback = false) {
+    const cached = offlineCatalog
+      ?? await readOfflineCatalog(cacheKey).catch(() => null);
+    if (!cached) {
+      setCatalogStatus("unavailable");
+      setError(
+        "No saved catalogue is available on this device. Reconnect once to prepare offline lookup.",
+      );
+      return false;
+    }
+
+    const matches = searchOfflineCatalog(cached.products, search);
+    setOfflineCatalog(cached);
+    setCatalogStatus("ready");
+    setProducts(matches);
+    if (search.trim() && matches.length === 0) {
+      setError(`No saved product found for “${search.trim()}”.`);
+      return false;
+    }
+    if (matches.length === 1) chooseProduct(matches[0]);
+    setMessage(
+      `${liveFallback ? "Live lookup unavailable. " : ""}Using catalogue saved ${catalogDate.format(new Date(cached.asOf))}. Stock may have changed.`,
+    );
+    return true;
+  }
+
   async function findProducts(search = query) {
     setLoading(true);
     setError("");
+    setMessage("");
     try {
+      if (!navigator.onLine) return await findCachedProducts(search);
+
       const response = await fetch(`/api/v1/catalog?q=${encodeURIComponent(search)}`);
       const body = await response.json();
       if (!response.ok) throw new Error(body.error?.message ?? "Products could not be loaded.");
@@ -250,8 +335,8 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
       }
       if (body.products.length === 1) chooseProduct(body.products[0]);
       return true;
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Products could not be loaded.");
+    } catch {
+      if (await findCachedProducts(search, true)) return true;
       return false;
     } finally {
       setLoading(false);
@@ -268,13 +353,21 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
     setShowScanner(false);
     setQuery(barcode);
     if (await findProducts(barcode)) {
-      setMessage(`Barcode ${barcode} scanned.`);
+      setMessage(
+        navigator.onLine
+          ? `Barcode ${barcode} scanned.`
+          : `Barcode ${barcode} found in the saved catalogue. Stock may have changed.`,
+      );
     }
   }
 
   function saveCartLine(event: FormEvent) {
     event.preventDefault();
     if (!selected) return;
+    if (!navigator.onLine) {
+      setError("Reconnect before adding products to a sale.");
+      return;
+    }
     if (quantity > selected.stock) {
       setError("There is not enough stock for this quantity.");
       return;
@@ -406,6 +499,7 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
               }),
         };
       }));
+      void refreshOfflineCatalog();
       setCart([]);
       setSelected(null);
       setSelectedCustomer(null);
@@ -688,7 +782,9 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
               autoComplete="off"
               enterKeyHint="search"
             />
-            <button type="submit" disabled={loading}>{loading ? "Finding…" : "Find"}</button>
+            <button type="submit" disabled={loading}>
+              {loading ? "Finding…" : online ? "Find" : "Find saved"}
+            </button>
             <button
               type="button"
               className="scan-trigger"
@@ -702,6 +798,40 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
             </button>
           </div>
         </form>}
+
+        {!receipt && (
+          <div
+            className={`catalog-sync-state ${online ? catalogStatus : "offline"}`}
+            role="status"
+          >
+            <span aria-hidden="true">{online ? "✓" : "!"}</span>
+            <div>
+              <strong>
+                {online
+                  ? catalogStatus === "ready"
+                    ? "Offline lookup ready"
+                    : catalogStatus === "loading"
+                      ? "Preparing offline lookup"
+                      : "Offline lookup unavailable"
+                  : offlineCatalog
+                    ? "Saved catalogue — read only"
+                    : "No saved catalogue on this device"}
+              </strong>
+              <small>
+                {offlineCatalog
+                  ? `${offlineCatalog.products.length} products · saved ${catalogDate.format(new Date(offlineCatalog.asOf))}${online ? "" : " · stock may have changed"}`
+                  : online
+                    ? "Keep this screen open while the catalogue is prepared."
+                    : "Reconnect once before using offline product lookup."}
+              </small>
+            </div>
+            {online && catalogStatus === "unavailable" && (
+              <button type="button" onClick={() => void refreshOfflineCatalog()}>
+                Retry
+              </button>
+            )}
+          </div>
+        )}
 
         {showScanner && !receipt && (
           <BarcodeScanner
@@ -796,7 +926,11 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                       <small>{product.rackLocation ?? "Rack not set"}</small>
                     </span>
                     <span className={`stock-pill${product.stock === 0 ? " empty" : ""}`}>
-                      {inCart ? `${inCart.quantity} in cart` : `${product.stock} in stock`}
+                      {inCart
+                        ? `${inCart.quantity} in cart`
+                        : online
+                          ? `${product.stock} in stock`
+                          : `${product.stock} last known`}
                     </span>
                   </button>
                 );
@@ -819,8 +953,17 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                     <h2>{selected.name}</h2>
                     <p>{selected.variantName} · {selected.rackLocation}</p>
                   </div>
-                  <span className="stock-large">{selected.stock}<small>available</small></span>
+                  <span className="stock-large">
+                    {selected.stock}
+                    <small>{online ? "available" : "last known"}</small>
+                  </span>
                 </div>
+
+                {!online && (
+                  <p className="offline-read-only">
+                    Saved product details only. Reconnect before pricing or adding to a sale.
+                  </p>
+                )}
 
                 <div className="price-summary">
                   <div><span>MRP</span><strong>{formatMoney(selected.mrpPaise)}</strong></div>
@@ -837,9 +980,9 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                 <fieldset>
                   <legend>Final unit price</legend>
                   <div className="preset-row">
-                    <button type="button" onClick={() => selectRegularPrice(selected.standardPricePaise)}>Standard</button>
-                    <button type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selected.standardPricePaise * 0.95)))}>5% off</button>
-                    <button type="button" onClick={() => selectRegularPrice(selected.minimumPricePaise)}>Maximum</button>
+                    <button disabled={!online} type="button" onClick={() => selectRegularPrice(selected.standardPricePaise)}>Standard</button>
+                    <button disabled={!online} type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selected.standardPricePaise * 0.95)))}>5% off</button>
+                    <button disabled={!online} type="button" onClick={() => selectRegularPrice(selected.minimumPricePaise)}>Maximum</button>
                   </div>
                   {!exceptionMode && (
                     <input
@@ -851,6 +994,7 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                       value={unitPrice}
                       onChange={(event) => setUnitPrice(Number(event.target.value))}
                       aria-label="Final unit price"
+                      disabled={!online}
                     />
                   )}
                   <div className="price-output">
@@ -861,7 +1005,7 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
 
                 <section className="exception-box" aria-label="Lower price approval">
                   {!showLowerPrice ? (
-                    <button type="button" className="text-button" onClick={() => setShowLowerPrice(true)}>
+                    <button disabled={!online} type="button" className="text-button" onClick={() => setShowLowerPrice(true)}>
                       Customer needs a lower price
                     </button>
                   ) : (
@@ -883,7 +1027,7 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                             inputMode="decimal"
                           />
                         </label>
-                        <button type="button" onClick={requestLowerPrice} disabled={checkingApproval}>
+                        <button type="button" onClick={requestLowerPrice} disabled={!online || checkingApproval}>
                           {checkingApproval ? "Please wait…" : role === "BUSINESS_OWNER" ? "Use owner exception" : "Request owner approval"}
                         </button>
                       </div>
@@ -920,6 +1064,7 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                       max={selected.stock}
                       value={quantity}
                       onChange={(event) => changeQuantity(Number(event.target.value), selected)}
+                      disabled={!online}
                       required
                     />
                   </label>
@@ -937,9 +1082,13 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                 <button
                   className="complete-button add-cart-button"
                   type="submit"
-                  disabled={selected.stock < quantity || approval?.status === "PENDING"}
+                  disabled={!online || selected.stock < quantity || approval?.status === "PENDING"}
                 >
-                  {cart.some((line) => line.product.id === selected.id) ? "Update cart" : "Add to cart"}
+                  {!online
+                    ? "Reconnect to add to cart"
+                    : cart.some((line) => line.product.id === selected.id)
+                      ? "Update cart"
+                      : "Add to cart"}
                 </button>
               </form>
             )}
@@ -970,6 +1119,13 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                   </div>
 
                   <form className="cart-checkout" onSubmit={submitSale}>
+                    {!online && (
+                      <p className="offline-read-only">
+                        This cart remains on this screen but is not queued or saved.
+                        Reconnect before checkout.
+                      </p>
+                    )}
+                    <fieldset className="online-only-checkout" disabled={!online}>
                     <section className="payment-section" aria-labelledby="payment-heading">
                       <div className="section-title">
                         <h3 id="payment-heading">Payment</h3>
@@ -1209,11 +1365,12 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
                     <button
                       className="complete-button"
                       type="submit"
-                      disabled={submitting || !guestCompletionReady
+                      disabled={!online || submitting || !guestCompletionReady
                         || (splitPayment && !splitPaymentValid)}
                     >
                       {submitting ? "Completing all lines safely…" : "Complete sale"}
                     </button>
+                    </fieldset>
                   </form>
                 </>
               )}

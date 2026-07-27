@@ -1,20 +1,12 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useOnlineStatus } from "@/client/use-online-status";
 
 type InstallPrompt = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
-
-function subscribeToConnection(callback: () => void) {
-  window.addEventListener("online", callback);
-  window.addEventListener("offline", callback);
-  return () => {
-    window.removeEventListener("online", callback);
-    window.removeEventListener("offline", callback);
-  };
-}
 
 function subscribeToDisplayMode(callback: () => void) {
   const media = window.matchMedia("(display-mode: standalone)");
@@ -30,11 +22,7 @@ function canOfferIosInstall() {
 }
 
 export default function PwaControls() {
-  const online = useSyncExternalStore(
-    subscribeToConnection,
-    () => navigator.onLine,
-    () => true,
-  );
+  const online = useOnlineStatus();
   const iosInstallAvailable = useSyncExternalStore(
     subscribeToDisplayMode,
     canOfferIosInstall,

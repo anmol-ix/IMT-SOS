@@ -46,6 +46,7 @@ export default async function Home() {
     const initialProducts = await searchSellableProducts(currentUser, "");
     return (
       <SellWorkspace
+        cacheKey={`${currentUser.id}:${currentUser.role}`}
         displayName={currentUser.displayName}
         role={currentUser.role}
         initialProducts={initialProducts}

@@ -109,7 +109,11 @@ Complete:
 
 - M4.1: installable PWA shell, platform icons, connectivity status and
   non-sensitive install-asset caching
-- Next: cached catalogue and queued normal sales
+- M4.2: role-safe IndexedDB catalogue snapshot with every recognised barcode,
+  permitted prices, rack and last-known stock; offline SKU/barcode/name lookup
+  remains read-only and clearly marks stale stock
+- Next: enrolled-device identity and bounded offline relaunch, followed by
+  queued normal Guest sales
 - Sync conflicts, cached-stock warning and device visibility
 
 ## M5 — Workbook migration — Not started
