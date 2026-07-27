@@ -8,7 +8,7 @@ export type AppRole = (typeof APP_ROLES)[number];
 
 export class ForbiddenError extends Error {
   readonly status = 403;
-  readonly code = "FORBIDDEN";
+  readonly code: string = "FORBIDDEN";
 
   constructor(message = "You do not have permission to perform this action.") {
     super(message);

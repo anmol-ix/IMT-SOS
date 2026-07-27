@@ -2054,6 +2054,211 @@ fieldset { margin: 0; border: 0; padding: 0; }
   }
 }
 
+.access-card {
+  max-width: 680px;
+}
+.access-card .lede strong {
+  color: #16324f;
+  overflow-wrap: anywhere;
+}
+.access-state {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 24px 0 4px;
+  border-radius: 16px;
+  padding: 15px 17px;
+  background: #e8f4f1;
+  color: #17675f;
+}
+.access-state > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #c9ece3;
+  font-weight: 900;
+}
+.access-state div { display: grid; gap: 3px; }
+.access-state small { color: #526173; line-height: 1.4; }
+
+.team-page {
+  display: grid;
+  gap: 24px;
+  max-width: 1100px;
+}
+.team-notice {
+  border: 1px solid #a9d7ca;
+  border-radius: 14px;
+  padding: 13px 15px;
+  background: #ecf8f4;
+  color: #17633e;
+  font-weight: 700;
+}
+.team-notice.error {
+  border-color: #e9aba7;
+  background: #fff1f0;
+  color: #8e2d28;
+}
+.team-section {
+  border: 1px solid #dfe3d6;
+  border-radius: 22px;
+  padding: 22px;
+  background: white;
+  box-shadow: 0 12px 35px rgba(35, 46, 37, 0.05);
+}
+.team-section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.team-section-heading h2 {
+  margin: 3px 0 0;
+  color: #16324f;
+}
+.team-section-heading > span {
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: #f1f4ee;
+  color: #526173;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+.team-invite-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(160px, 1fr) minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.team-invite-form label,
+.inline-access-field {
+  display: grid;
+  gap: 7px;
+  color: #344054;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.team-invite-form input,
+.team-invite-form select,
+.inline-access-field select {
+  min-height: 46px;
+  border: 1px solid #ccd5c7;
+  border-radius: 13px;
+  padding: 0 13px;
+  background: white;
+  color: #17243a;
+  font: inherit;
+}
+.team-invite-form .button {
+  min-height: 46px;
+  border: 0;
+  cursor: pointer;
+}
+.team-invite-form .button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.role-explainer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.role-explainer span {
+  display: grid;
+  gap: 3px;
+  border-radius: 14px;
+  padding: 13px 15px;
+  background: #f4f6f1;
+  color: #697386;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.role-explainer strong { color: #26354b; }
+.team-list { display: grid; gap: 10px; }
+.team-row {
+  display: grid;
+  grid-template-columns: minmax(230px, 1fr) minmax(155px, auto) minmax(240px, auto);
+  gap: 18px;
+  align-items: center;
+  border: 1px solid #e1e5dc;
+  border-radius: 16px;
+  padding: 15px;
+}
+.team-person { display: grid; gap: 3px; min-width: 0; }
+.team-person strong { color: #26354b; }
+.team-person small {
+  color: #697386;
+  overflow-wrap: anywhere;
+}
+.access-pill {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+.access-pill.active { background: #e6f5ee; color: #17633e; }
+.access-pill.waiting { background: #fff3d5; color: #765200; }
+.access-pill.owner { background: #e8f0f8; color: #16324f; }
+.team-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  align-items: center;
+}
+.team-actions button {
+  min-height: 38px;
+  border: 1px solid #cfd8cf;
+  border-radius: 10px;
+  padding: 0 11px;
+  background: white;
+  color: #344054;
+  cursor: pointer;
+  font-weight: 750;
+}
+.team-actions button:hover { border-color: #7f9184; }
+.team-actions button:disabled { cursor: not-allowed; opacity: 0.5; }
+.team-actions .danger-link { color: #9c2e29; }
+.owner-protected {
+  color: #697386;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+.inline-access-field {
+  grid-template-columns: auto minmax(150px, 1fr);
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .team-invite-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .team-row {
+    grid-template-columns: minmax(210px, 1fr) auto;
+  }
+  .team-row .team-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+@media (max-width: 560px) {
+  .team-page { padding-inline: 12px; }
+  .team-section { padding: 16px; }
+  .team-invite-form,
+  .role-explainer,
+  .team-row { grid-template-columns: 1fr; }
+  .team-invite-form .button { width: 100%; }
+  .team-actions {
+    grid-column: auto;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .team-actions button { flex: 1; }
+  .inline-access-field { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 560px) {
   .closing-page { padding-inline: 12px; }
   .closing-snapshot,

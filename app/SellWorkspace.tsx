@@ -661,6 +661,7 @@ export default function SellWorkspace({ displayName, role, initialProducts }: Pr
           {role !== "STORE_OPERATOR" && <Link href="/receive">Receive</Link>}
           <Link href="/inventory">Inventory</Link>
           <Link href="/activity">Activity</Link>
+          {role === "BUSINESS_OWNER" && <Link href="/team">Team</Link>}
         </nav>
         <span className="role-chip">{roleLabel(role)}</span>
       </header>

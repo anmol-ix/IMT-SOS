@@ -6,6 +6,8 @@ The current increment proves:
 
 - one responsive Next.js/TypeScript application and versioned `/api/v1` boundary;
 - hosted WorkOS sign-in with application-controlled roles;
+- automatic first-owner activation from one configured verified email;
+- owner-managed staff invitations, role changes and access removal without database access;
 - a restricted PostgreSQL runtime identity separate from schema migration access;
 - versioned relational schema for users, products, variants, barcodes, prices, sales and stock;
 - an idempotent transaction that remains single-write under concurrent retries;
@@ -58,13 +60,23 @@ Integration tests require `TEST_DATABASE_URL` for the restricted runtime role an
 
 ## Safe initial access
 
-Creating a WorkOS identity alone does not grant application access. After the first intended owner signs in to WorkOS staging, provision that exact WorkOS user ID through the controlled migration credential:
+On a new installation, the first verified WorkOS user becomes the business
+owner automatically. This one-time claim is database-locked and recorded in
+the audit trail.
 
 ```text
-WORKOS_USER_ID=user_... OWNER_DISPLAY_NAME=Anmol npm run db:provision-owner
+BUSINESS_NAME=ItsMyToy
 ```
 
-Never expose `MIGRATION_DATABASE_URL` or `DATABASE_ADMIN_URL` to the running application or browser.
+After that first sign-in, unknown users cannot claim access. The owner uses
+**Team & Access** inside the application to invite a Google
+email as a store operator or trusted operator. WorkOS sends the invitation;
+the internal role activates automatically after the recipient accepts and
+signs in. Unknown emails see a clear access-not-approved screen.
+
+Never expose `MIGRATION_DATABASE_URL` or `DATABASE_ADMIN_URL` to the browser.
+The runtime database identity cannot insert or update users directly; it can
+only execute the audited access functions created by the migration.
 
 Open `http://127.0.0.1:4173` after `npm run dev`. Business owners land on the local control dashboard; operators land on the selling screen. See [OPERATIONS.md](./OPERATIONS.md) only when hosted deployment becomes relevant.
 

@@ -67,6 +67,8 @@ WORKOS_CLIENT_ID=<WorkOS-staging-client-ID>
 WORKOS_COOKIE_PASSWORD=<at-least-32-random-characters>
 WORKOS_REDIRECT_URI=https://<your-railway-domain>/auth/callback
 
+BUSINESS_NAME=ItsMyToy
+
 DEPLOY_BOOTSTRAP_DATABASE_ROLES=1
 DATABASE_ADMIN_URL=${{Postgres.DATABASE_URL}}
 RUNTIME_DATABASE_ROLE=itsmytoy_runtime
@@ -117,12 +119,13 @@ Both must return HTTP 200 and include an `x-request-id` response header.
 
 Then:
 
-1. Complete WorkOS staging sign-in and MFA.
-2. Confirm an unprovisioned identity receives application access denied.
-3. Provision the intended staging owner using the controlled migration
-   credential.
-4. Confirm the owner dashboard loads.
-5. Confirm a store operator cannot access owner-only endpoints.
+1. On a new database, sign in with the intended owner account and complete MFA.
+2. Confirm that this first verified user automatically reaches the owner dashboard.
+3. Open **Team & Access** and invite a dummy store-operator email.
+4. Accept that invitation, sign in and confirm the operator can sell.
+5. Confirm that operator cannot access owner-only endpoints.
+6. Sign in with an uninvited dummy email and confirm the clear access-denied
+   screen appears.
 
 Do not treat a green deployment as permission to import real data. PITR restore,
 private-network evidence, latency measurement, owner/operator acceptance and the

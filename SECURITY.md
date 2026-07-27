@@ -2,7 +2,18 @@
 
 ## Enforced in the walking skeleton
 
-- WorkOS handles the hosted identity session; internal access still requires an active `app_users` record.
+- WorkOS handles the hosted identity session; internal access still requires a
+  verified email with an active user or pending application invitation.
+- On an empty installation, the first verified WorkOS user becomes owner under
+  a database lock. Once any application user or pending invitation exists,
+  later access requires the owner-only Team & Access screen.
+- The runtime database role cannot insert or update users directly. It receives
+  execute permission only on narrow security-definer functions for claiming an
+  invitation, inviting an operator, changing operator access and revoking an
+  invitation.
+- Owner self-demotion and self-disable are rejected in PostgreSQL, and every
+  invitation, acceptance, role change, disable and revocation writes an
+  append-only audit event.
 - The three roles are `BUSINESS_OWNER`, `TRUSTED_OPERATOR` and `STORE_OPERATOR`.
 - Owner policy is enforced in server code and has explicit negative tests for both operator roles.
 - Product identity and initial pricing are owner-only; trusted and ordinary

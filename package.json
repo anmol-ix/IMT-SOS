@@ -20,7 +20,6 @@
     "deploy:check": "node scripts/validate-deployment-env.mjs",
     "deploy:prepare": "npm run deploy:check && node scripts/prepare-deployment.mjs",
     "db:roles": "node scripts/configure-database-roles.mjs",
-    "db:provision-owner": "node scripts/provision-owner.mjs",
     "db:seed-demo": "node scripts/seed-demo-products.mjs",
     "security:prove-operator-denial": "node scripts/prove-operator-denial.mjs",
     "test:local-sale": "node scripts/prove-operator-denial.mjs",
