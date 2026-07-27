@@ -56,6 +56,25 @@ describeWithDatabase("database-enforced team access", () => {
     ownerId = claimed.rows[0].id;
   });
 
+  it("creates an active Main Store for every new business", async () => {
+    const location = await migrationPool.query<{
+      name: string;
+      timezone: string;
+      status: string;
+    }>(
+      `SELECT name, timezone, status
+         FROM locations
+        WHERE business_id = $1`,
+      [businessId],
+    );
+
+    expect(location.rows).toEqual([{
+      name: "Main Store",
+      timezone: "Asia/Kolkata",
+      status: "ACTIVE",
+    }]);
+  });
+
   it("keeps direct user writes denied to the runtime role", async () => {
     await expect(
       runtimePool.query(
