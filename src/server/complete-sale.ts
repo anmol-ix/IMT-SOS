@@ -16,8 +16,11 @@ import {
 } from "./payment-policy";
 import { consumePriceApproval, requireApprovedPrice } from "./price-approvals";
 import { IdempotencyConflictError } from "./proof-command";
+import { requireOfflineSaleDevice } from "./devices";
+import { requireOfflineSalePolicy } from "./offline-sale-policy";
 import {
   priceNeedsApproval,
+  requirePermittedPrice,
   type PriceExceptionReason,
   requireExceptionReason,
 } from "./sale-policy";
@@ -39,6 +42,20 @@ export type CompleteSaleInput = {
   guestApprovalId?: string;
   ownerGuestOverride?: boolean;
   payments: SalePayment[];
+  offline?: {
+    schemaVersion: 1;
+    deviceId: string;
+    devicePublicId: string;
+    validatedAt: string;
+    createdAt: string;
+    catalogAsOf: string;
+    lines: Array<{
+      variantId: string;
+      priceVersionId: string;
+      cachedStock: number;
+      queuedBeforeQuantity: number;
+    }>;
+  };
 };
 
 export type CompleteSaleLineResult = {
@@ -163,6 +180,10 @@ export async function completeSale(
     if (new Set(input.lines.map((line) => line.variantId)).size !== input.lines.length) {
       throw new InvalidSaleLinesError();
     }
+    requireOfflineSalePolicy(input);
+    if (input.offline) {
+      await requireOfflineSaleDevice(client, user, input.offline);
+    }
 
     const orderedLines = input.lines
       .map((line, inputIndex) => ({ line, inputIndex }))
@@ -218,7 +239,20 @@ export async function completeSale(
       const needsApproval = priceNeedsApproval(line.unitPricePaise, price, user.role);
       let exception: SaleLineContext["exception"];
 
-      if (needsApproval) {
+      if (input.offline) {
+        const cached = input.offline.lines.find(
+          (item) => item.variantId === line.variantId,
+        );
+        if (cached?.priceVersionId !== row.price_version_id) {
+          const error = new Error(
+            `${row.product_name} was repriced after this device went offline.`,
+          ) as Error & { status: number; code: string };
+          error.status = 409;
+          error.code = "PRICE_VERSION_CHANGED";
+          throw error;
+        }
+        requirePermittedPrice(line.unitPricePaise, price, user.role);
+      } else if (needsApproval) {
         if (user.role === "BUSINESS_OWNER") {
           requireExceptionReason(line.ownerException?.reason, line.ownerException?.note);
           exception = {
@@ -336,9 +370,10 @@ export async function completeSale(
       `INSERT INTO sales
          (id, sale_number, business_id, location_id, status, total_paise, created_by,
           completed_at, command_id, request_hash, customer_id, customer_name, customer_phone,
-          guest_approval_id, guest_override_reason, sales_channel, result_json)
+          guest_approval_id, guest_override_reason, sales_channel, result_json,
+          offline_device_id, offline_created_at, offline_catalog_as_of)
        VALUES ($1, $2, $3, $4, 'COMPLETED', $5, $6, $7, $8, $9, $10, $11, $12,
-               $13, $14, 'SHOP', $15)
+               $13, $14, 'SHOP', $15, $16, $17, $18)
        ON CONFLICT (command_id) WHERE command_id IS NOT NULL DO NOTHING
        RETURNING id`,
       [
@@ -357,6 +392,9 @@ export async function completeSale(
         guestApproval?.id ?? null,
         guestOverrideReason,
         result,
+        input.offline?.deviceId ?? null,
+        input.offline?.createdAt ?? null,
+        input.offline?.catalogAsOf ?? null,
       ],
     );
     if (!inserted.rows[0]) {
@@ -447,6 +485,13 @@ export async function completeSale(
           customerId: customer?.id ?? null,
           guestApprovalId: guestApproval?.id ?? null,
           guestOverrideReason,
+          offline: input.offline
+            ? {
+                deviceId: input.offline.deviceId,
+                createdAt: input.offline.createdAt,
+                catalogAsOf: input.offline.catalogAsOf,
+              }
+            : null,
           lines: contexts.map((line) => ({
             sku: line.row.sku,
             quantity: line.input.quantity,

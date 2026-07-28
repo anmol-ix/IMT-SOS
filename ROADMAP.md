@@ -116,10 +116,12 @@ Complete:
   owner approval/revocation for operator devices, visible 12-hour validation
   state and a service-worker fallback that reliably reopens the saved read-only
   catalogue without caching authenticated application pages
-- Next — M4.4: queued normal-price Guest sales on approved devices, limited to
-  Cash/UPI, no customer PII, cached price floors and the one-unit stock reserve
-- Later in M4: ordered idempotent sync, conflict handling, queued-command
-  visibility and cached-stock warnings
+- M4.4: queued normal-price Guest sales on approved devices, limited to
+  Cash/UPI, no customer PII, cached price floors and the one-unit stock reserve;
+  commands sync in creation order with the existing idempotent sale transaction,
+  remain visible until accepted and block new checkout when review is required
+- Next — M4.5: owner conflict-resolution workflow for rejected queued sales,
+  explicit resolution actions and cached-stock warning refinements
 
 ## M5 — Workbook migration — Not started
 

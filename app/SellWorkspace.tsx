@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   readOfflineCatalog,
@@ -12,6 +12,11 @@ import {
   readOfflineDevice,
   saveOfflineDevice,
 } from "@/client/offline-device";
+import {
+  deleteOfflineSale,
+  listOfflineSales,
+  saveOfflineSale,
+} from "@/client/offline-sales";
 import { clearOfflineAccess } from "@/client/offline-storage";
 import { useOnlineStatus } from "@/client/use-online-status";
 import {
@@ -22,10 +27,18 @@ import {
   offlineDeviceState,
   type OfflineDeviceEnrollment,
 } from "@/shared/offline-device";
+import {
+  buildOfflineSaleCommand,
+  offlineAvailableQuantity,
+  queuedQuantityForVariant,
+  type OfflineSaleCommand,
+  type OfflineSalePaymentMode,
+} from "@/shared/offline-sale";
 import BarcodeScanner from "./BarcodeScanner";
 
 type Product = {
   id: string;
+  priceVersionId: string;
   name: string;
   variantName: string | null;
   sku: string;
@@ -42,6 +55,7 @@ type Product = {
 
 type Props = {
   cacheKey: string;
+  userId: string;
   displayName: string;
   role: "BUSINESS_OWNER" | "TRUSTED_OPERATOR" | "STORE_OPERATOR";
   initialProducts: Product[];
@@ -215,6 +229,7 @@ function deviceStateCopy(enrollment: OfflineDeviceEnrollment | null) {
 
 export default function SellWorkspace({
   cacheKey,
+  userId,
   displayName,
   role,
   initialProducts,
@@ -267,6 +282,9 @@ export default function SellWorkspace({
   const [deviceStatus, setDeviceStatus] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
+  const [offlineSales, setOfflineSales] = useState<OfflineSaleCommand[]>([]);
+  const [syncingOfflineSales, setSyncingOfflineSales] = useState(false);
+  const syncingOfflineSalesRef = useRef(false);
 
   const refreshOfflineCatalog = useCallback(async () => {
     if (!navigator.onLine) return;
@@ -343,6 +361,109 @@ export default function SellWorkspace({
       })
       .catch(() => setDeviceStatus("unavailable"));
   }, [cacheKey, online, refreshDeviceEnrollment]);
+
+  const refreshOfflineSales = useCallback(async () => {
+    const commands = await listOfflineSales(userId).catch(() => []);
+    setOfflineSales(commands);
+    return commands;
+  }, [userId]);
+
+  useEffect(() => {
+    queueMicrotask(() => void refreshOfflineSales());
+  }, [refreshOfflineSales]);
+
+  useEffect(() => {
+    if (!online) {
+      queueMicrotask(() => {
+        setSelectedCustomer(null);
+        setShowCustomerFinder(false);
+        setGuestApproval(null);
+        setOwnerGuestOverride(false);
+      });
+    }
+  }, [online]);
+
+  const syncOfflineSales = useCallback(async (retryNeedsReview = false) => {
+    if (
+      !navigator.onLine
+      || syncingOfflineSalesRef.current
+      || offlineDeviceState(offlineDevice) !== "ACTIVE"
+    ) return;
+    syncingOfflineSalesRef.current = true;
+    setSyncingOfflineSales(true);
+    let stopped = false;
+    try {
+      const commands = (await listOfflineSales(userId)).filter(
+        (command) => retryNeedsReview || command.status === "QUEUED",
+      );
+      for (const command of commands) {
+        const response = await fetch("/api/v1/sales", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "idempotency-key": command.commandId,
+          },
+          body: JSON.stringify(command.payload),
+        });
+        const body = await response.json().catch(() => null);
+        if (response.ok) {
+          await deleteOfflineSale(command.commandId);
+          const results = new Map<string, { remainingStock: number }>(
+            (body?.sale?.lines ?? []).map((line: {
+              variantId: string;
+              remainingStock: number;
+            }) => [line.variantId, line]),
+          );
+          setProducts((current) => current.map((product) => {
+            const result = results.get(product.id);
+            return result ? { ...product, stock: result.remainingStock } : product;
+          }));
+          continue;
+        }
+        await saveOfflineSale({
+          ...command,
+          status: "NEEDS_REVIEW",
+          retryCount: command.retryCount + 1,
+          lastResult: {
+            code: body?.error?.code ?? "SYNC_FAILED",
+            message: body?.error?.message ?? "This queued sale needs review.",
+            at: new Date().toISOString(),
+          },
+        });
+        if (
+          response.status === 401
+          || response.status === 403
+          || body?.error?.code === "COMMAND_SCHEMA_UNSUPPORTED"
+        ) {
+          stopped = true;
+          break;
+        }
+      }
+      const remaining = await refreshOfflineSales();
+      if (commands.length > 0) {
+        if (remaining.length === 0) {
+          setMessage(`${commands.length} queued ${commands.length === 1 ? "sale" : "sales"} synced safely.`);
+          void refreshOfflineCatalog();
+        } else if (stopped) {
+          setError("Queued-sale sync stopped. Revalidate this device or ask an owner to review it.");
+        } else {
+          setError(`${remaining.length} queued ${remaining.length === 1 ? "sale needs" : "sales need"} review.`);
+        }
+      }
+    } catch {
+      await refreshOfflineSales();
+      setError("Queued-sale sync was interrupted. It will retry after the connection is stable.");
+    } finally {
+      syncingOfflineSalesRef.current = false;
+      setSyncingOfflineSales(false);
+    }
+  }, [offlineDevice, refreshOfflineCatalog, refreshOfflineSales, userId]);
+
+  useEffect(() => {
+    if (online && offlineDeviceState(offlineDevice) === "ACTIVE") {
+      queueMicrotask(() => void syncOfflineSales());
+    }
+  }, [offlineDevice, online, syncOfflineSales]);
 
   function resetGuestDecision() {
     setGuestApproval(null);
@@ -461,12 +582,39 @@ export default function SellWorkspace({
   function saveCartLine(event: FormEvent) {
     event.preventDefault();
     if (!selected) return;
-    if (!navigator.onLine) {
-      setError("Reconnect before adding products to a sale.");
+    const cachedProduct = offlineCatalog?.products.find(
+      (product) => product.id === selected.id,
+    );
+    const queuedQuantity = queuedQuantityForVariant(offlineSales, selected.id);
+    const availableQuantity = navigator.onLine
+      ? selected.stock
+      : cachedProduct
+        ? offlineAvailableQuantity(cachedProduct.stock, queuedQuantity)
+        : 0;
+    if (
+      !navigator.onLine
+      && (
+        offlineDeviceState(offlineDevice) !== "ACTIVE"
+        || !cachedProduct
+      )
+    ) {
+      setError("Reconnect and validate this approved device before building an offline sale.");
       return;
     }
-    if (quantity > selected.stock) {
+    if (quantity > availableQuantity) {
       setError("There is not enough stock for this quantity.");
+      return;
+    }
+    if (
+      !navigator.onLine
+      && (
+        exceptionMode
+        || approval
+        || unitPrice < cachedProduct!.minimumPricePaise
+        || unitPrice > cachedProduct!.standardPricePaise
+      )
+    ) {
+      setError("Offline prices must stay within the saved permitted range.");
       return;
     }
     if (approval?.status === "PENDING") {
@@ -521,6 +669,47 @@ export default function SellWorkspace({
   async function submitSale(event: FormEvent) {
     event.preventDefault();
     if (cart.length === 0) return;
+    if (!navigator.onLine) {
+      if (cart.some((line) => line.approval || line.exceptionMode)) {
+        setError("Approved or exceptional prices cannot be queued offline.");
+        return;
+      }
+      setSubmitting(true);
+      setError("");
+      try {
+        const catalog = offlineCatalog ?? await readOfflineCatalog(cacheKey);
+        if (!catalog) {
+          throw new Error("No saved catalogue is available for this offline sale.");
+        }
+        const queuedCommands = await listOfflineSales(userId);
+        const command = buildOfflineSaleCommand({
+          commandId,
+          userBinding: userId,
+          catalog,
+          device: offlineDevice,
+          queuedCommands,
+          lines: saleLines(),
+          paymentMode: (
+            ["CASH", "UPI"].includes(paymentMode) ? paymentMode : "UPI"
+          ) as OfflineSalePaymentMode,
+        });
+        await saveOfflineSale(command);
+        await refreshOfflineSales();
+        setCart([]);
+        setSelected(null);
+        setSelectedCustomer(null);
+        resetGuestDecision();
+        setCommandId(crypto.randomUUID());
+        setMessage(
+          `Sale queued on this device · ${command.display.units} units · ${formatMoney(command.display.totalPaise)}. It is not synced yet.`,
+        );
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Sale could not be queued.");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
     if (splitPayment && !splitPaymentValid) {
       setError("Enter a first payment amount above ₹0 and below the cart total.");
       return;
@@ -838,6 +1027,27 @@ export default function SellWorkspace({
     || (role === "BUSINESS_OWNER"
       ? ownerGuestOverride
       : guestApproval?.status === "APPROVED");
+  const offlineSellingReady = !online
+    && Boolean(offlineCatalog)
+    && offlineDeviceState(offlineDevice) === "ACTIVE";
+  const selectedQueuedQuantity = selected
+    ? queuedQuantityForVariant(offlineSales, selected.id)
+    : 0;
+  const selectedCachedProduct = selected
+    ? offlineCatalog?.products.find((product) => product.id === selected.id)
+    : null;
+  const selectedAvailableQuantity = online
+    ? selected?.stock ?? 0
+    : selectedCachedProduct
+      ? offlineAvailableQuantity(
+          selectedCachedProduct.stock,
+          selectedQueuedQuantity,
+        )
+      : 0;
+  const needsReviewCount = offlineSales.filter(
+    (command) => command.status === "NEEDS_REVIEW",
+  ).length;
+  const queuedSalesBlockOnlineCheckout = online && offlineSales.length > 0;
 
   return (
     <main className="app-shell">
@@ -943,6 +1153,60 @@ export default function SellWorkspace({
                 </small>
               </div>
             </div>
+            <div className={`offline-queue-state${needsReviewCount ? " review" : ""}`}>
+              <span aria-hidden="true">{needsReviewCount ? "!" : "↻"}</span>
+              <div>
+                <strong>
+                  {offlineSales.length === 0
+                    ? "No sales waiting to sync"
+                    : `${offlineSales.length} ${offlineSales.length === 1 ? "sale" : "sales"} saved on this device`}
+                </strong>
+                <small>
+                  {syncingOfflineSales
+                    ? "Syncing in sale order…"
+                    : needsReviewCount
+                      ? `${needsReviewCount} need owner review; they still count against offline stock.`
+                      : offlineSales.length
+                        ? online
+                          ? "Ready to sync after device validation."
+                          : "They will sync in order after reconnecting."
+                        : "Offline sales will remain visible here until the server accepts them."}
+                </small>
+              </div>
+              {online && offlineSales.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void syncOfflineSales(needsReviewCount > 0)}
+                  disabled={syncingOfflineSales}
+                >
+                  {syncingOfflineSales
+                    ? "Syncing…"
+                    : needsReviewCount
+                      ? "Retry review"
+                      : "Sync now"}
+                </button>
+              )}
+            </div>
+            {offlineSales.length > 0 && (
+              <div className="offline-queue-list">
+                {offlineSales.map((command) => (
+                  <div key={command.commandId}>
+                    <span>
+                      <strong>
+                        {command.display.units} units · {formatMoney(command.display.totalPaise)}
+                      </strong>
+                      <small>
+                        {catalogDate.format(new Date(command.createdAt))}
+                        {" · "}
+                        {command.display.paymentMode}
+                      </small>
+                    </span>
+                    <b>{command.status === "QUEUED" ? "Waiting" : "Needs review"}</b>
+                    {command.lastResult && <small>{command.lastResult.message}</small>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1043,7 +1307,10 @@ export default function SellWorkspace({
                         ? `${inCart.quantity} in cart`
                         : online
                           ? `${product.stock} in stock`
-                          : `${product.stock} last known`}
+                          : `${offlineAvailableQuantity(
+                              product.stock,
+                              queuedQuantityForVariant(offlineSales, product.id),
+                            )} offline available`}
                     </span>
                   </button>
                 );
@@ -1074,7 +1341,9 @@ export default function SellWorkspace({
 
                 {!online && (
                   <p className="offline-read-only">
-                    Saved product details only. Reconnect before pricing or adding to a sale.
+                    {offlineSellingReady
+                      ? `Saved stock is ${selectedCachedProduct?.stock ?? 0}; ${selectedAvailableQuantity} can be sold offline after queued sales and the one-unit reserve.`
+                      : "Saved product details only. Reconnect and validate this device before queuing a sale."}
                   </p>
                 )}
 
@@ -1093,9 +1362,9 @@ export default function SellWorkspace({
                 <fieldset>
                   <legend>Final unit price</legend>
                   <div className="preset-row">
-                    <button disabled={!online} type="button" onClick={() => selectRegularPrice(selected.standardPricePaise)}>Standard</button>
-                    <button disabled={!online} type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selected.standardPricePaise * 0.95)))}>5% off</button>
-                    <button disabled={!online} type="button" onClick={() => selectRegularPrice(selected.minimumPricePaise)}>Maximum</button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selected.standardPricePaise)}>Standard</button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selected.standardPricePaise * 0.95)))}>5% off</button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selected.minimumPricePaise)}>Maximum</button>
                   </div>
                   {!exceptionMode && (
                     <input
@@ -1107,7 +1376,7 @@ export default function SellWorkspace({
                       value={unitPrice}
                       onChange={(event) => setUnitPrice(Number(event.target.value))}
                       aria-label="Final unit price"
-                      disabled={!online}
+                      disabled={!online && !offlineSellingReady}
                     />
                   )}
                   <div className="price-output">
@@ -1174,10 +1443,10 @@ export default function SellWorkspace({
                     <input
                       type="number"
                       min="1"
-                      max={selected.stock}
+                      max={Math.max(1, selectedAvailableQuantity)}
                       value={quantity}
                       onChange={(event) => changeQuantity(Number(event.target.value), selected)}
-                      disabled={!online}
+                      disabled={!online && !offlineSellingReady}
                       required
                     />
                   </label>
@@ -1195,10 +1464,15 @@ export default function SellWorkspace({
                 <button
                   className="complete-button add-cart-button"
                   type="submit"
-                  disabled={!online || selected.stock < quantity || approval?.status === "PENDING"}
+                  disabled={(!online && !offlineSellingReady)
+                    || selectedAvailableQuantity < quantity
+                    || queuedSalesBlockOnlineCheckout
+                    || approval?.status === "PENDING"}
                 >
-                  {!online
+                  {!online && !offlineSellingReady
                     ? "Reconnect to add to cart"
+                    : queuedSalesBlockOnlineCheckout
+                      ? "Sync queued sales first"
                     : cart.some((line) => line.product.id === selected.id)
                       ? "Update cart"
                       : "Add to cart"}
@@ -1234,11 +1508,11 @@ export default function SellWorkspace({
                   <form className="cart-checkout" onSubmit={submitSale}>
                     {!online && (
                       <p className="offline-read-only">
-                        This cart remains on this screen but is not queued or saved.
-                        Reconnect before checkout.
+                        Guest sale only. Cash or UPI. No customer details. The saved
+                        permitted price and one-unit stock reserve are enforced.
                       </p>
                     )}
-                    <fieldset className="online-only-checkout" disabled={!online}>
+                    <fieldset className="online-only-checkout" hidden={!online}>
                     <section className="payment-section" aria-labelledby="payment-heading">
                       <div className="section-title">
                         <h3 id="payment-heading">Payment</h3>
@@ -1479,11 +1753,46 @@ export default function SellWorkspace({
                       className="complete-button"
                       type="submit"
                       disabled={!online || submitting || !guestCompletionReady
+                        || queuedSalesBlockOnlineCheckout
                         || (splitPayment && !splitPaymentValid)}
                     >
                       {submitting ? "Completing all lines safely…" : "Complete sale"}
                     </button>
                     </fieldset>
+                    {!online && (
+                      <section className="offline-checkout" aria-label="Offline Guest checkout">
+                        <div className="section-title">
+                          <h3>Offline Guest sale</h3>
+                          <span>Saved on this device first</span>
+                        </div>
+                        <label>Payment method
+                          <select
+                            value={["CASH", "UPI"].includes(paymentMode) ? paymentMode : "UPI"}
+                            onChange={(event) => setPaymentMode(event.target.value)}
+                            disabled={!offlineSellingReady}
+                          >
+                            <option value="UPI">UPI</option>
+                            <option value="CASH">Cash</option>
+                          </select>
+                        </label>
+                        {requiresCustomer && (
+                          <p className="alert error" role="alert">
+                            Reconnect for a Guest sale of ₹5,000 or more.
+                          </p>
+                        )}
+                        <div className="checkout-total cart-total">
+                          <span><small>{cart.length} products · {cartUnits} units</small>Total</span>
+                          <strong>{formatMoney(cartTotal)}</strong>
+                        </div>
+                        <button
+                          className="complete-button"
+                          type="submit"
+                          disabled={!offlineSellingReady || submitting || requiresCustomer}
+                        >
+                          {submitting ? "Saving safely…" : "Queue offline sale"}
+                        </button>
+                      </section>
+                    )}
                   </form>
                 </>
               )}

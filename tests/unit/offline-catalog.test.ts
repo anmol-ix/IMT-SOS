@@ -8,6 +8,7 @@ import {
 const products: OfflineCatalogProduct[] = [
   {
     id: "1",
+    priceVersionId: "price-1",
     name: "Remote Control Car",
     variantName: "Red",
     sku: "IMT-CAR-RC-0001-RED",
@@ -21,6 +22,7 @@ const products: OfflineCatalogProduct[] = [
   },
   {
     id: "2",
+    priceVersionId: "price-2",
     name: "Science Kit",
     variantName: null,
     sku: "IMT-EDU-SCI-0002",

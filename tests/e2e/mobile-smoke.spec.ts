@@ -15,6 +15,16 @@ test("mobile selling sign-in shell and liveness endpoint are available", async (
     const registration = await navigator.serviceWorker.ready;
     return Boolean(registration.active);
   })).resolves.toBe(true);
+  await expect(page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("itsmytoy-offline", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const stores = Array.from(database.objectStoreNames);
+    database.close();
+    return stores;
+  })).resolves.toEqual(["catalog", "device", "sales"]);
 
   const manifest = await request.get("/manifest.webmanifest");
   expect(manifest.status()).toBe(200);

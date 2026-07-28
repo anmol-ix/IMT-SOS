@@ -49,6 +49,7 @@ export default async function Home() {
     return (
       <SellWorkspace
         cacheKey={`${currentUser.id}:${currentUser.role}`}
+        userId={currentUser.id}
         displayName={currentUser.displayName}
         role={currentUser.role}
         initialProducts={initialProducts}

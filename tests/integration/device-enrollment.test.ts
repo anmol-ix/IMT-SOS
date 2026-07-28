@@ -105,6 +105,22 @@ describeWithDatabase("database-enforced device enrollment", () => {
     expect(devices.rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: operatorDeviceId, status: "ACTIVE" }),
     ]));
+
+    const validation = await runtimePool.query<{
+      status: string;
+      last_validated_at: Date;
+    }>(
+      "SELECT * FROM validate_offline_sale_device($1, $2, $3)",
+      [operatorId, operatorDeviceId, operatorPublicId],
+    );
+    expect(validation.rows[0].status).toBe("ACTIVE");
+    expect(validation.rows[0].last_validated_at).toBeInstanceOf(Date);
+
+    const wrongUser = await runtimePool.query(
+      "SELECT * FROM validate_offline_sale_device($1, $2, $3)",
+      [ownerId, operatorDeviceId, operatorPublicId],
+    );
+    expect(wrongUser.rowCount).toBe(0);
   });
 
   it("does not silently reactivate a revoked device", async () => {

@@ -1,5 +1,6 @@
 export type OfflineCatalogProduct = {
   id: string;
+  priceVersionId: string;
   name: string;
   variantName: string | null;
   sku: string;
@@ -22,6 +23,7 @@ export function toOfflineCatalogProduct(
 ): OfflineCatalogProduct {
   return {
     id: product.id,
+    priceVersionId: product.priceVersionId,
     name: product.name,
     variantName: product.variantName,
     sku: product.sku,

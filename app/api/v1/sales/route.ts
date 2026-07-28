@@ -42,6 +42,22 @@ const bodySchema = z.object({
         });
       }
     }),
+  offline: z
+    .object({
+      schemaVersion: z.literal(1),
+      deviceId: z.string().uuid(),
+      devicePublicId: z.string().uuid(),
+      validatedAt: z.string().datetime(),
+      createdAt: z.string().datetime(),
+      catalogAsOf: z.string().datetime(),
+      lines: z.array(z.object({
+        variantId: z.string().uuid(),
+        priceVersionId: z.string().uuid(),
+        cachedStock: z.number().int().min(0),
+        queuedBeforeQuantity: z.number().int().min(0),
+      })).min(1).max(20),
+    })
+    .optional(),
 });
 
 export async function POST(request: Request) {
@@ -55,6 +71,7 @@ export async function POST(request: Request) {
       guestApprovalId: body.guestApprovalId,
       ownerGuestOverride: body.ownerGuestOverride,
       payments: body.payments,
+      offline: body.offline,
     });
     if (user.role !== "BUSINESS_OWNER") {
       const safe = {

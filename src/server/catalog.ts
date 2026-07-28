@@ -9,6 +9,7 @@ import { toOfflineCatalogProduct } from "@/shared/offline-catalog";
 
 export type SellableProduct = {
   id: string;
+  priceVersionId: string;
   name: string;
   variantName: string | null;
   sku: string;
@@ -31,7 +32,7 @@ export type SellableProduct = {
 
 export const SELLABLE_PRODUCTS_SQL = `
   SELECT
-    v.id, p.name, v.variant_name, v.sku, b.barcodes[1] AS barcode,
+    v.id, pv.id AS price_version_id, p.name, v.variant_name, v.sku, b.barcodes[1] AS barcode,
     b.barcodes,
     v.rack_location, ib.quantity_on_hand, pv.mrp_paise, pv.standard_price_paise,
     GREATEST(
@@ -99,6 +100,7 @@ async function loadSellableProducts(
 ): Promise<SellableProduct[]> {
   const result = await getDatabase().query<{
     id: string;
+    price_version_id: string;
     name: string;
     variant_name: string | null;
     sku: string;
@@ -123,6 +125,7 @@ async function loadSellableProducts(
 
   return result.rows.map((row) => ({
     id: row.id,
+    priceVersionId: row.price_version_id,
     name: row.name,
     variantName: row.variant_name,
     sku: row.sku,

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { CurrentUser } from "@/server/auth/current-user";
+import type { PoolClient } from "pg";
 import { requireRole } from "@/server/auth/roles";
 import { getDatabase } from "@/server/database";
 import {
@@ -8,6 +9,26 @@ import {
   type DeviceEnrollmentStatus,
   type OfflineDeviceEnrollment,
 } from "@/shared/offline-device";
+
+export class OfflineDeviceRejectedError extends Error {
+  readonly status = 403;
+  readonly code = "DEVICE_REVOKED";
+
+  constructor(message = "This device is not approved for the queued offline sale.") {
+    super(message);
+    this.name = "OfflineDeviceRejectedError";
+  }
+}
+
+export class OfflineSessionExpiredError extends Error {
+  readonly status = 409;
+  readonly code = "SESSION_EXPIRED";
+
+  constructor() {
+    super("This offline sale was created outside the device's 12-hour validation window.");
+    this.name = "OfflineSessionExpiredError";
+  }
+}
 
 export type AppDevice = OfflineDeviceEnrollment & {
   userId: string;
@@ -108,4 +129,40 @@ export async function changeDeviceStatus(
   const device = devices.find((item) => item.deviceId === deviceId);
   if (!device) throw new Error("Device not found after update.");
   return device;
+}
+
+export async function requireOfflineSaleDevice(
+  client: PoolClient,
+  actor: CurrentUser,
+  input: {
+    deviceId: string;
+    devicePublicId: string;
+    validatedAt: string;
+    createdAt: string;
+  },
+): Promise<void> {
+  const result = await client.query<{
+    status: DeviceEnrollmentStatus;
+    last_validated_at: Date | null;
+  }>(
+    "SELECT * FROM validate_offline_sale_device($1, $2, $3)",
+    [actor.id, input.deviceId, input.devicePublicId],
+  );
+  const device = result.rows[0];
+  if (device?.status !== "ACTIVE" || !device.last_validated_at) {
+    throw new OfflineDeviceRejectedError();
+  }
+  const createdAt = new Date(input.createdAt).getTime();
+  const validatedAt = new Date(input.validatedAt).getTime();
+  const currentValidation = device.last_validated_at.getTime();
+  const expiresAt = new Date(graceExpiry(input.validatedAt)).getTime();
+  if (
+    !Number.isFinite(createdAt)
+    || !Number.isFinite(validatedAt)
+    || createdAt < validatedAt
+    || createdAt >= expiresAt
+    || validatedAt > currentValidation
+  ) {
+    throw new OfflineSessionExpiredError();
+  }
 }

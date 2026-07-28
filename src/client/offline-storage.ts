@@ -1,10 +1,11 @@
 "use client";
 
 const DATABASE_NAME = "itsmytoy-offline";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 
 export const OFFLINE_CATALOG_STORE = "catalog";
 export const OFFLINE_DEVICE_STORE = "device";
+export const OFFLINE_SALE_STORE = "sales";
 
 export function openOfflineDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -16,6 +17,9 @@ export function openOfflineDatabase(): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains(OFFLINE_DEVICE_STORE)) {
         database.createObjectStore(OFFLINE_DEVICE_STORE, { keyPath: "key" });
+      }
+      if (!database.objectStoreNames.contains(OFFLINE_SALE_STORE)) {
+        database.createObjectStore(OFFLINE_SALE_STORE, { keyPath: "commandId" });
       }
     };
     request.onsuccess = () => resolve(request.result);
