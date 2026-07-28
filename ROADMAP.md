@@ -1,6 +1,6 @@
 # ItsMyToy Local Product Roadmap
 
-Last verified: 27 July 2026
+Last verified: 28 July 2026
 
 Status means implemented and locally verified, not only designed.
 
@@ -105,7 +105,7 @@ Complete:
 - Explicit, removable first-deployment database-role bootstrap
 - GitHub-triggered staging deployment configuration and operator guide
 
-## M4 — PWA and offline operation — In progress
+## M4 — PWA and offline operation — Complete
 
 - M4.1: installable PWA shell, platform icons, connectivity status and
   non-sensitive install-asset caching
@@ -120,8 +120,15 @@ Complete:
   Cash/UPI, no customer PII, cached price floors and the one-unit stock reserve;
   commands sync in creation order with the existing idempotent sale transaction,
   remain visible until accepted and block new checkout when review is required
-- Next — M4.5: owner conflict-resolution workflow for rejected queued sales,
-  explicit resolution actions and cached-stock warning refinements
+- M4.5: rejected queued sales reported to the shared owner action queue; an
+  owner can record the exact physical sale under the original operator or
+  confirm that no sale happened, with mandatory verification notes, immutable
+  audit evidence, idempotent command recovery and no-negative-stock protection
+- Cached-stock warnings now show snapshot age and the exact last-known minus
+  queued minus one-unit-reserve calculation before an offline quantity is used
+
+Next: M5 workbook migration, beginning with read-only source mapping,
+validation and quarantine rules before any live import.
 
 ## M5 — Workbook migration — Not started
 

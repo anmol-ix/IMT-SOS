@@ -85,6 +85,15 @@ export type CompleteSaleResult = {
   replayed: boolean;
 };
 
+export type CompleteSaleOptions = {
+  ownerResolution?: {
+    conflictId: string;
+    owner: CurrentUser;
+    note: string;
+    requestHash: string;
+  };
+};
+
 type ProductRow = {
   variant_id: string;
   product_name: string;
@@ -159,8 +168,26 @@ export async function completeSale(
   user: CurrentUser,
   commandId: string,
   input: CompleteSaleInput,
+  options: CompleteSaleOptions = {},
 ): Promise<CompleteSaleResult> {
-  const requestHash = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  const ownerResolution = options.ownerResolution;
+  if (
+    ownerResolution
+    && (
+      ownerResolution.owner.role !== "BUSINESS_OWNER"
+      || ownerResolution.owner.businessId !== user.businessId
+      || !ownerResolution.note.trim()
+      || !/^[0-9a-f]{64}$/.test(ownerResolution.requestHash)
+    )
+  ) {
+    const error = new Error("Only this business owner can confirm an offline sale.") as
+      Error & { status: number; code: string };
+    error.status = 403;
+    error.code = "FORBIDDEN";
+    throw error;
+  }
+  const requestHash = ownerResolution?.requestHash
+    ?? createHash("sha256").update(JSON.stringify(input)).digest("hex");
 
   return inTransaction(async (client) => {
     const prior = await client.query<{
@@ -180,8 +207,51 @@ export async function completeSale(
     if (new Set(input.lines.map((line) => line.variantId)).size !== input.lines.length) {
       throw new InvalidSaleLinesError();
     }
-    requireOfflineSalePolicy(input);
     if (input.offline) {
+      const conflict = await client.query<{
+        id: string;
+        operator_user_id: string;
+        request_hash: string;
+        status: "PENDING" | "COMPLETED" | "DISMISSED";
+      }>(
+        `SELECT id, operator_user_id, request_hash, status
+           FROM offline_sale_conflicts
+          WHERE business_id = $1 AND command_id = $2
+          FOR UPDATE`,
+        [
+          user.businessId,
+          commandId,
+        ],
+      );
+      const row = conflict.rows[0];
+      if (
+        ownerResolution
+        && (
+          !row
+          || row.id !== ownerResolution.conflictId
+          || row.operator_user_id !== user.id
+          || row.request_hash !== ownerResolution.requestHash
+          || row.status !== "PENDING"
+        )
+      ) {
+        const error = new Error(
+          "This offline-sale conflict is no longer awaiting a decision.",
+        ) as Error & { status: number; code: string };
+        error.status = 409;
+        error.code = "OFFLINE_CONFLICT_UNAVAILABLE";
+        throw error;
+      }
+      if (!ownerResolution && row?.status === "DISMISSED") {
+        const error = new Error(
+          "The owner confirmed that this queued command was not a completed sale.",
+        ) as Error & { status: number; code: string };
+        error.status = 409;
+        error.code = "OFFLINE_SALE_DISMISSED";
+        throw error;
+      }
+    }
+    requireOfflineSalePolicy(input);
+    if (input.offline && !ownerResolution) {
       await requireOfflineSaleDevice(client, user, input.offline);
     }
 
@@ -243,7 +313,7 @@ export async function completeSale(
         const cached = input.offline.lines.find(
           (item) => item.variantId === line.variantId,
         );
-        if (cached?.priceVersionId !== row.price_version_id) {
+        if (!ownerResolution && cached?.priceVersionId !== row.price_version_id) {
           const error = new Error(
             `${row.product_name} was repriced after this device went offline.`,
           ) as Error & { status: number; code: string };
@@ -251,7 +321,17 @@ export async function completeSale(
           error.code = "PRICE_VERSION_CHANGED";
           throw error;
         }
-        requirePermittedPrice(line.unitPricePaise, price, user.role);
+        if (ownerResolution) {
+          if (needsApproval || cached?.priceVersionId !== row.price_version_id) {
+            exception = {
+              approvalId: null,
+              reason: "OTHER",
+              note: `Owner-confirmed offline sale: ${ownerResolution.note.trim()}`,
+            };
+          }
+        } else {
+          requirePermittedPrice(line.unitPricePaise, price, user.role);
+        }
       } else if (needsApproval) {
         if (user.role === "BUSINESS_OWNER") {
           requireExceptionReason(line.ownerException?.reason, line.ownerException?.note);
@@ -503,6 +583,49 @@ export async function completeSale(
         },
       ],
     );
+    if (input.offline) {
+      const resolved = await client.query<{ id: string }>(
+        `UPDATE offline_sale_conflicts
+            SET status = 'COMPLETED',
+                resolved_by = $1,
+                resolved_at = now(),
+                resolution_action = $2,
+                resolution_note = $3,
+                sale_id = $4
+          WHERE business_id = $5
+            AND command_id = $6
+            AND ($7::uuid IS NULL OR id = $7)
+            AND status = 'PENDING'
+        RETURNING id`,
+        [
+          ownerResolution?.owner.id ?? null,
+          ownerResolution ? "OWNER_CONFIRMED" : "SYNCED_AFTER_RETRY",
+          ownerResolution?.note.trim() ?? null,
+          saleId,
+          user.businessId,
+          commandId,
+          ownerResolution?.conflictId ?? null,
+        ],
+      );
+      if (resolved.rows[0] && ownerResolution) {
+        await client.query(
+          `INSERT INTO audit_events
+             (business_id, actor_user_id, event_type, entity_type, entity_id, details)
+           VALUES ($1, $2, 'OFFLINE_SALE_OWNER_CONFIRMED', 'OFFLINE_SALE_CONFLICT', $3, $4)`,
+          [
+            user.businessId,
+            ownerResolution.owner.id,
+            resolved.rows[0].id,
+            {
+              commandId,
+              saleId,
+              operatorUserId: user.id,
+              note: ownerResolution.note.trim(),
+            },
+          ],
+        );
+      }
+    }
 
     return { ...result, replayed: false };
   });

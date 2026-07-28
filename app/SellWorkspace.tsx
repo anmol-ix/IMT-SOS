@@ -145,6 +145,14 @@ function formatMoney(paise: number) {
   return money.format(paise / 100);
 }
 
+function savedAge(iso: string) {
+  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60_000));
+  if (minutes < 1) return "saved just now";
+  if (minutes < 60) return `saved ${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  return `saved ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+}
+
 function paymentLabel(mode: SaleReceipt["payments"][number]["paymentMode"]) {
   if (mode === "UPI") return "UPI";
   return mode === "BANK_TRANSFER"
@@ -393,7 +401,32 @@ export default function SellWorkspace({
     setSyncingOfflineSales(true);
     let stopped = false;
     try {
-      const commands = (await listOfflineSales(userId)).filter(
+      let storedCommands = await listOfflineSales(userId);
+      try {
+        const conflictResponse = await fetch("/api/v1/offline-sale-conflicts");
+        if (conflictResponse.ok) {
+          const conflictBody = await conflictResponse.json() as {
+            conflicts: Array<{
+              commandId: string;
+              status: "PENDING" | "COMPLETED" | "DISMISSED";
+            }>;
+          };
+          const resolvedIds = new Set(
+            conflictBody.conflicts
+              .filter((conflict) => conflict.status !== "PENDING")
+              .map((conflict) => conflict.commandId),
+          );
+          for (const command of storedCommands) {
+            if (resolvedIds.has(command.commandId)) {
+              await deleteOfflineSale(command.commandId);
+            }
+          }
+          if (resolvedIds.size) storedCommands = await listOfflineSales(userId);
+        }
+      } catch {
+        // Conflict status is helpful, but it must never block a normal retry.
+      }
+      const commands = storedCommands.filter(
         (command) => retryNeedsReview || command.status === "QUEUED",
       );
       for (const command of commands) {
@@ -420,16 +453,32 @@ export default function SellWorkspace({
           }));
           continue;
         }
+        const lastResult = {
+          code: body?.error?.code ?? "SYNC_FAILED",
+          message: body?.error?.message ?? "This queued sale needs review.",
+          at: new Date().toISOString(),
+        };
         await saveOfflineSale({
           ...command,
           status: "NEEDS_REVIEW",
           retryCount: command.retryCount + 1,
-          lastResult: {
-            code: body?.error?.code ?? "SYNC_FAILED",
-            message: body?.error?.message ?? "This queued sale needs review.",
-            at: new Date().toISOString(),
-          },
+          lastResult,
         });
+        if (response.status !== 401) {
+          await fetch("/api/v1/offline-sale-conflicts", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              commandId: command.commandId,
+              payload: command.payload,
+              display: command.display,
+              error: {
+                code: lastResult.code,
+                message: lastResult.message,
+              },
+            }),
+          }).catch(() => null);
+        }
         if (
           response.status === 401
           || response.status === 403
@@ -1126,7 +1175,7 @@ export default function SellWorkspace({
                 </strong>
                 <small>
                   {offlineCatalog
-                    ? `${offlineCatalog.products.length} products · saved ${catalogDate.format(new Date(offlineCatalog.asOf))}${online ? "" : " · stock may have changed"}`
+                    ? `${offlineCatalog.products.length} products · ${savedAge(offlineCatalog.asOf)} · ${catalogDate.format(new Date(offlineCatalog.asOf))}${online ? "" : " · server stock may now be lower"}`
                     : online
                       ? "Keep this screen open while the catalogue is prepared."
                       : "Reconnect once before using offline product lookup."}
@@ -1342,7 +1391,7 @@ export default function SellWorkspace({
                 {!online && (
                   <p className="offline-read-only">
                     {offlineSellingReady
-                      ? `Saved stock is ${selectedCachedProduct?.stock ?? 0}; ${selectedAvailableQuantity} can be sold offline after queued sales and the one-unit reserve.`
+                      ? `Last known ${selectedCachedProduct?.stock ?? 0} − ${selectedQueuedQuantity} already queued − 1 safety reserve = ${selectedAvailableQuantity} available offline. ${offlineCatalog ? savedAge(offlineCatalog.asOf) : ""}; server stock may now be lower.`
                       : "Saved product details only. Reconnect and validate this device before queuing a sale."}
                   </p>
                 )}

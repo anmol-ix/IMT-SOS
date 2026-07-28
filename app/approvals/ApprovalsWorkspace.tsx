@@ -53,11 +53,35 @@ type StockAdjustment = {
   requestedAt: string;
 };
 
+type OfflineSaleConflict = {
+  id: string;
+  commandId: string;
+  operatorName: string;
+  deviceName: string;
+  status: "PENDING" | "COMPLETED" | "DISMISSED";
+  display: {
+    totalPaise: number;
+    units: number;
+    paymentMode: "CASH" | "UPI";
+    products: Array<{
+      variantId: string;
+      name: string;
+      sku: string;
+      quantity: number;
+    }>;
+  };
+  errorCode: string;
+  errorMessage: string;
+  offlineCreatedAt: string;
+  reportedAt: string;
+};
+
 type Props = {
   displayName: string;
   initialApprovals: Approval[];
   initialGuestApprovals: GuestApproval[];
   initialStockAdjustments: StockAdjustment[];
+  initialOfflineSaleConflicts: OfflineSaleConflict[];
 };
 
 const reasons = [
@@ -72,6 +96,11 @@ const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
   maximumFractionDigits: 2,
+});
+const dateTime = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Kolkata",
 });
 
 function formatMoney(paise: number) {
@@ -90,35 +119,53 @@ export default function ApprovalsWorkspace({
   initialApprovals,
   initialGuestApprovals,
   initialStockAdjustments,
+  initialOfflineSaleConflicts,
 }: Props) {
   const [approvals, setApprovals] = useState(initialApprovals);
   const [guestApprovals, setGuestApprovals] = useState(initialGuestApprovals);
   const [stockAdjustments, setStockAdjustments] = useState(initialStockAdjustments);
+  const [offlineSaleConflicts, setOfflineSaleConflicts] = useState(
+    initialOfflineSaleConflicts,
+  );
   const [reason, setReason] = useState("CUSTOMER_SERVICE_RECOVERY");
   const [note, setNote] = useState("");
   const [guestNote, setGuestNote] = useState("");
   const [stockDecisionNote, setStockDecisionNote] = useState("");
+  const [offlineDecisionNote, setOfflineDecisionNote] = useState("");
   const [workingId, setWorkingId] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   async function refresh() {
     setError("");
-    const [priceResponse, guestResponse, stockResponse] = await Promise.all([
+    const [
+      priceResponse,
+      guestResponse,
+      stockResponse,
+      offlineResponse,
+    ] = await Promise.all([
       fetch("/api/v1/price-approvals"),
       fetch("/api/v1/guest-sale-approvals"),
       fetch("/api/v1/stock-adjustments"),
+      fetch("/api/v1/offline-sale-conflicts"),
     ]);
-    const [priceBody, guestBody, stockBody] = await Promise.all([
+    const [priceBody, guestBody, stockBody, offlineBody] = await Promise.all([
       priceResponse.json(),
       guestResponse.json(),
       stockResponse.json(),
+      offlineResponse.json(),
     ]);
-    if (!priceResponse.ok || !guestResponse.ok || !stockResponse.ok) {
+    if (
+      !priceResponse.ok
+      || !guestResponse.ok
+      || !stockResponse.ok
+      || !offlineResponse.ok
+    ) {
       setError(
         priceBody.error?.message
           ?? guestBody.error?.message
           ?? stockBody.error?.message
+          ?? offlineBody.error?.message
           ?? "Approvals could not be loaded.",
       );
       return;
@@ -126,6 +173,48 @@ export default function ApprovalsWorkspace({
     setApprovals(priceBody.approvals);
     setGuestApprovals(guestBody.approvals);
     setStockAdjustments(stockBody.adjustments);
+    setOfflineSaleConflicts(offlineBody.conflicts);
+  }
+
+  async function decideOfflineSale(
+    id: string,
+    action: "CONFIRM_SALE" | "NOT_SOLD",
+  ) {
+    if (offlineDecisionNote.trim().length < 3) {
+      setError("Add a short owner note explaining what was physically verified.");
+      return;
+    }
+    setWorkingId(id);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/v1/offline-sale-conflicts/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, note: offlineDecisionNote.trim() }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          body.error?.message ?? "The offline-sale decision could not be saved.",
+        );
+      }
+      setOfflineSaleConflicts((current) => current.filter((item) => item.id !== id));
+      setOfflineDecisionNote("");
+      setMessage(
+        action === "CONFIRM_SALE"
+          ? `Physical sale recorded${body.saleNumber ? ` as ${body.saleNumber}` : ""}. Stock, payment and operator attribution were saved together.`
+          : "Confirmed that no sale happened. The phone will release its local stock reservation when it reconnects.",
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "The offline-sale decision could not be saved.",
+      );
+    } finally {
+      setWorkingId("");
+    }
   }
 
   async function decideStock(id: string, decision: "APPROVE" | "REJECT") {
@@ -247,8 +336,8 @@ export default function ApprovalsWorkspace({
             <p className="eyebrow">Owner control</p>
             <h1 id="approval-heading">Approvals</h1>
             <p>
-              Review stock-count differences, customer-declined Guest sales and
-              lower-price exceptions.
+              Review rejected offline sales, stock-count differences,
+              customer-declined Guest sales and lower-price exceptions.
             </p>
           </div>
           <button type="button" className="refresh-button" onClick={refresh}>Refresh</button>
@@ -256,6 +345,93 @@ export default function ApprovalsWorkspace({
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
+
+        <section className="approval-group" aria-labelledby="offline-approval-heading">
+          <div className="section-title">
+            <h2 id="offline-approval-heading">Rejected offline sales</h2>
+            <span>{offlineSaleConflicts.length} waiting</span>
+          </div>
+          <div className="approval-list">
+            {offlineSaleConflicts.length === 0 ? (
+              <section className="results-panel empty-approvals">
+                <h2>No offline conflicts waiting</h2>
+                <p>Rejected queued sales from enrolled phones will appear here.</p>
+              </section>
+            ) : offlineSaleConflicts.map((conflict) => (
+              <article className="approval-card" key={conflict.id}>
+                <div className="approval-product">
+                  <div>
+                    <p className="eyebrow">
+                      {conflict.operatorName} · {conflict.deviceName}
+                    </p>
+                    <h2>
+                      {conflict.display.units} units ·{" "}
+                      {formatMoney(conflict.display.totalPaise)}
+                    </h2>
+                    <p>
+                      {conflict.display.paymentMode} · physically created{" "}
+                      {dateTime.format(new Date(conflict.offlineCreatedAt))}
+                    </p>
+                  </div>
+                  <span className="pending-chip">Verify physically</span>
+                </div>
+
+                <div className="guest-cart-summary">
+                  {conflict.display.products.map((product) => (
+                    <div key={product.variantId}>
+                      <span>
+                        <strong>{product.name}</strong>
+                        <small>{product.sku}</small>
+                      </span>
+                      <strong>{product.quantity} units</strong>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="stock-approval-warning">
+                  <strong>Why sync stopped:</strong> {conflict.errorMessage}
+                </p>
+                <p>
+                  Check the product, payment and actual handover. “Record sale”
+                  uses this exact offline amount and original operator, but stops
+                  if current system stock is insufficient.
+                </p>
+
+                <div className="form-row">
+                  <label>Required owner verification note
+                    <input
+                      value={offlineDecisionNote}
+                      onChange={(event) => setOfflineDecisionNote(event.target.value)}
+                      maxLength={500}
+                      placeholder="Example: Checked UPI and product handover"
+                    />
+                  </label>
+                </div>
+
+                <div className="decision-buttons">
+                  <button
+                    type="button"
+                    className="reject-button"
+                    disabled={workingId === conflict.id}
+                    onClick={() => decideOfflineSale(conflict.id, "NOT_SOLD")}
+                  >
+                    No sale happened
+                  </button>
+                  <button
+                    type="button"
+                    className="approve-button"
+                    disabled={workingId === conflict.id}
+                    onClick={() => decideOfflineSale(conflict.id, "CONFIRM_SALE")}
+                  >
+                    {workingId === conflict.id
+                      ? "Recording…"
+                      : "Confirm and record sale"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         <section className="approval-group" aria-labelledby="stock-approval-heading">
           <div className="section-title">

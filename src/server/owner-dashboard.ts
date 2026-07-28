@@ -53,6 +53,7 @@ export type OwnerDashboard = {
     quantity: number;
   }>;
   actions: {
+    offlineSaleConflicts: number;
     priceApprovals: number;
     guestApprovals: number;
     stockAdjustments: number;
@@ -293,12 +294,16 @@ export async function getOwnerDashboard(
       [user.businessId],
     ),
     database.query<{
+      offline_sale_conflicts: number;
       price_approvals: number;
       guest_approvals: number;
       stock_adjustments: number;
       receipt_drafts: number;
     }>(
       `SELECT
+         (SELECT count(*)::int FROM offline_sale_conflicts
+           WHERE business_id = $1 AND status = 'PENDING')
+           AS offline_sale_conflicts,
          (SELECT count(*)::int FROM price_approval_requests
            WHERE business_id = $1 AND status = 'PENDING' AND expires_at > now())
            AS price_approvals,
@@ -415,6 +420,7 @@ export async function getOwnerDashboard(
       quantity: row.quantity,
     })),
     actions: {
+      offlineSaleConflicts: actionRow.offline_sale_conflicts,
       priceApprovals: actionRow.price_approvals,
       guestApprovals: actionRow.guest_approvals,
       stockAdjustments: actionRow.stock_adjustments,

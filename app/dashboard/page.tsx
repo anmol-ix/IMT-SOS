@@ -34,7 +34,8 @@ export default async function DashboardPage() {
   ]);
   const closingNeedsAction = closing.status === "CLOSED" ? 0 : 1;
   const pendingApprovals =
-    dashboard.actions.priceApprovals
+    dashboard.actions.offlineSaleConflicts
+    + dashboard.actions.priceApprovals
     + dashboard.actions.guestApprovals
     + dashboard.actions.stockAdjustments;
   const reorderSetupNeedsAction = dashboard.stock.unconfiguredReorderPolicyCount;
@@ -125,6 +126,7 @@ export default async function DashboardPage() {
               <span>Owner decisions</span>
               <strong>{pendingApprovals}</strong>
               <small>
+                {dashboard.actions.offlineSaleConflicts} offline ·{" "}
                 {dashboard.actions.stockAdjustments} stock ·{" "}
                 {dashboard.actions.priceApprovals} price ·{" "}
                 {dashboard.actions.guestApprovals} Guest
