@@ -6,9 +6,11 @@ import type {
   TeamAccessView,
   TeamMember,
 } from "@/server/team-access";
+import type { AppDevice } from "@/server/devices";
 
 type Props = {
   initialTeam: TeamAccessView;
+  initialDevices: AppDevice[];
 };
 
 type ApiError = {
@@ -17,6 +19,12 @@ type ApiError = {
 
 const joinedDate = new Intl.DateTimeFormat("en-IN", {
   dateStyle: "medium",
+  timeZone: "Asia/Kolkata",
+});
+
+const seenDate = new Intl.DateTimeFormat("en-IN", {
+  dateStyle: "medium",
+  timeStyle: "short",
   timeZone: "Asia/Kolkata",
 });
 
@@ -38,9 +46,10 @@ async function copySignInLink() {
   await navigator.clipboard.writeText(`${window.location.origin}/sign-in`);
 }
 
-export default function TeamWorkspace({ initialTeam }: Props) {
+export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
   const [members, setMembers] = useState(initialTeam.members);
   const [invitations, setInvitations] = useState(initialTeam.invitations);
+  const [devices, setDevices] = useState(initialDevices);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<AccessInvitation["role"]>("STORE_OPERATOR");
@@ -137,6 +146,38 @@ export default function TeamWorkspace({ initialTeam }: Props) {
       setMessage(`${body.member.displayName}'s access was updated.`);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Update failed.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function updateDevice(
+    device: AppDevice,
+    action: "APPROVE" | "REVOKE",
+  ) {
+    setBusyId(device.deviceId);
+    setMessage("");
+    setError("");
+    try {
+      const body = await responseBody<{ device: AppDevice }>(
+        await fetch(`/api/v1/devices/${device.deviceId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action }),
+        }),
+      );
+      setDevices((current) =>
+        current.map((item) =>
+          item.deviceId === device.deviceId ? body.device : item
+        )
+      );
+      setMessage(
+        action === "APPROVE"
+          ? `${device.displayName} approved for ${device.userDisplayName}.`
+          : `${device.displayName} revoked.`,
+      );
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Device update failed.");
     } finally {
       setBusyId("");
     }
@@ -340,6 +381,72 @@ export default function TeamWorkspace({ initialTeam }: Props) {
             );
           })}
         </div>
+      </section>
+
+      <section className="team-section" aria-labelledby="devices-heading">
+        <div className="team-section-heading">
+          <div>
+            <p className="eyebrow">Offline control</p>
+            <h2 id="devices-heading">Enrolled devices</h2>
+          </div>
+          <span>{devices.filter((device) => device.status === "ACTIVE").length} active</span>
+        </div>
+        <p className="device-section-note">
+          Approving a device prepares it for bounded offline use. Online access
+          continues to follow the team member’s account status and role.
+        </p>
+        {devices.length ? (
+          <div className="team-list">
+            {devices.map((device) => (
+              <article className="team-row" key={device.deviceId}>
+                <div className="team-person">
+                  <strong>{device.displayName}</strong>
+                  <small>
+                    {device.userDisplayName} · {roleLabel(device.userRole)}
+                  </small>
+                  <small>
+                    Last seen {seenDate.format(new Date(device.lastSeenAt))}
+                  </small>
+                </div>
+                <span className={`access-pill ${device.status.toLowerCase()}`}>
+                  {device.status === "ACTIVE"
+                    ? "Approved"
+                    : device.status === "PENDING"
+                      ? "Approval needed"
+                      : "Revoked"}
+                </span>
+                <div className="team-actions">
+                  {device.status === "PENDING" && (
+                    <button
+                      type="button"
+                      disabled={busyId === device.deviceId}
+                      onClick={() => updateDevice(device, "APPROVE")}
+                    >
+                      Approve device
+                    </button>
+                  )}
+                  {device.status !== "REVOKED" && (
+                    <button
+                      type="button"
+                      className="danger-link"
+                      disabled={busyId === device.deviceId}
+                      onClick={() => updateDevice(device, "REVOKE")}
+                    >
+                      Revoke
+                    </button>
+                  )}
+                  {device.status === "REVOKED" && (
+                    <span className="owner-protected">Use a new enrollment to restore</span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="device-empty">
+            Devices appear here after a team member opens the Sell screen online.
+          </p>
+        )}
       </section>
     </section>
   );

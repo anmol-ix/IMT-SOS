@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f4f6ef">
+    <link rel="icon" href="/icon.svg">
+    <title>ItsMyToy — Saved catalogue</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #17243a;
+        background: #f4f6ef;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100svh; background: linear-gradient(160deg, #edf7f4, #f7f5e9 55%, #edf1e8); }
+      button, input { font: inherit; }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px max(18px, calc((100vw - 980px) / 2));
+        border-bottom: 1px solid #dce4da;
+        background: rgba(255,255,255,.88);
+      }
+      .brand { margin: 0; color: #16324f; font-weight: 900; }
+      .offline-chip { border-radius: 999px; padding: 8px 11px; background: #fff0cf; color: #765200; font-size: .78rem; font-weight: 850; }
+      main { width: min(980px, 100%); margin: 0 auto; padding: clamp(26px, 6vw, 56px) 18px 64px; }
+      .eyebrow { margin: 0 0 8px; color: #168276; font-size: .77rem; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+      h1 { max-width: 720px; margin: 0; color: #16324f; font-size: clamp(2.3rem, 8vw, 4.7rem); letter-spacing: -.055em; line-height: .97; }
+      .lede { max-width: 720px; margin: 16px 0 0; color: #5f6d7f; line-height: 1.55; }
+      .state-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 25px 0 18px; }
+      .state-card { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; border: 1px solid #d8e3dc; border-radius: 16px; padding: 13px; background: white; }
+      .state-card > span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: #dff3ed; color: #167368; font-weight: 900; }
+      .state-card div { display: grid; gap: 3px; }
+      .state-card small { color: #687588; line-height: 1.35; }
+      .state-card.warning { border-color: #efcf8e; background: #fffaf0; color: #765200; }
+      .state-card.warning > span { background: #fff0cf; color: #765200; }
+      .state-card.danger { border-color: #e9aba7; background: #fff1f0; color: #8e2d28; }
+      .state-card.danger > span { background: #fee0de; color: #8e2d28; }
+      .toolbar { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin: 22px 0 15px; }
+      input { min-width: 0; min-height: 52px; border: 1px solid #cbd5ca; border-radius: 14px; padding: 10px 14px; background: white; color: #17243a; }
+      button { min-height: 52px; border: 0; border-radius: 14px; padding: 0 18px; background: #16324f; color: white; font-weight: 850; }
+      .results { display: grid; gap: 9px; }
+      .product { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px 18px; border: 1px solid #dde4da; border-radius: 16px; padding: 15px; background: white; box-shadow: 0 8px 24px rgba(32,50,40,.04); }
+      .product-copy { display: grid; gap: 4px; min-width: 0; }
+      .product-copy strong { color: #26354b; }
+      .product-copy small { overflow-wrap: anywhere; color: #697386; }
+      .stock { align-self: start; border-radius: 999px; padding: 7px 10px; background: #e5f3eb; color: #17633e; font-size: .74rem; font-weight: 850; white-space: nowrap; }
+      .prices { display: flex; flex-wrap: wrap; gap: 7px; grid-column: 1 / -1; }
+      .prices span { border-radius: 10px; padding: 7px 9px; background: #f1f4ee; color: #526173; font-size: .75rem; }
+      .prices strong { color: #16324f; }
+      .empty { border-radius: 16px; padding: 22px; background: white; color: #697386; text-align: center; }
+      .safety { margin: 20px 0 0; border-left: 4px solid #d79122; border-radius: 9px; padding: 12px 14px; background: #fff6df; color: #765200; font-size: .82rem; line-height: 1.5; }
+      @media (max-width: 650px) {
+        .state-grid { grid-template-columns: 1fr; }
+        .toolbar { grid-template-columns: 1fr; }
+        .toolbar button { width: 100%; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <p class="brand">ItsMyToy</p>
+      <span class="offline-chip">Offline · read only</span>
+    </header>
+    <main>
+      <p class="eyebrow">Saved product lookup</p>
+      <h1>The shop catalogue is still available.</h1>
+      <p class="lede">
+        Search the last saved stock and permitted prices. Reconnect before creating
+        or completing a sale; stock may have changed on another device.
+      </p>
+
+      <section class="state-grid" aria-label="Offline status">
+        <div class="state-card warning" id="catalogue-state">
+          <span aria-hidden="true">!</span>
+          <div>
+            <strong>Opening saved catalogue</strong>
+            <small>Please wait.</small>
+          </div>
+        </div>
+        <div class="state-card warning" id="device-state">
+          <span aria-hidden="true">!</span>
+          <div>
+            <strong>Checking this device</strong>
+            <small>Saved product lookup remains read only.</small>
+          </div>
+        </div>
+      </section>
+
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="SKU, barcode or product name" autocomplete="off" aria-label="Search saved catalogue">
+        <button id="reconnect" type="button">Try to reconnect</button>
+      </div>
+      <section class="results" id="results" aria-live="polite">
+        <p class="empty">Opening the saved catalogue…</p>
+      </section>
+      <p class="safety">
+        Read-only safety mode: prices and stock are last known values. No cart,
+        customer information or sale is saved from this page.
+      </p>
+    </main>
+    <script>
+      (() => {
+        const money = new Intl.NumberFormat("en-IN", {
+          style: "currency",
+          currency: "INR",
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        });
+        const date = new Intl.DateTimeFormat("en-IN", {
+          dateStyle: "medium",
+          timeStyle: "short",
+          timeZone: "Asia/Kolkata",
+        });
+        const results = document.querySelector("#results");
+        const search = document.querySelector("#search");
+        const catalogueState = document.querySelector("#catalogue-state");
+        const deviceState = document.querySelector("#device-state");
+        let products = [];
+
+        function setState(element, title, detail, level) {
+          element.className = `state-card ${level || ""}`.trim();
+          element.querySelector("span").textContent = level ? "!" : "✓";
+          element.querySelector("strong").textContent = title;
+          element.querySelector("small").textContent = detail;
+        }
+
+        function productMatches(product, rawQuery) {
+          const query = rawQuery.trim().toLocaleLowerCase("en");
+          if (!query) return true;
+          return product.sku.toLocaleLowerCase("en").includes(query)
+            || product.name.toLocaleLowerCase("en").includes(query)
+            || (product.variantName || "").toLocaleLowerCase("en").includes(query)
+            || product.barcodes.some((barcode) =>
+              barcode.toLocaleLowerCase("en").includes(query));
+        }
+
+        function addPrice(container, label, paise) {
+          const item = document.createElement("span");
+          item.append(`${label} `);
+          const value = document.createElement("strong");
+          value.textContent = money.format(paise / 100);
+          item.append(value);
+          container.append(item);
+        }
+
+        function render(rawQuery = "") {
+          results.replaceChildren();
+          const matching = products.filter((product) =>
+            productMatches(product, rawQuery)).slice(0, 12);
+          if (!matching.length) {
+            const empty = document.createElement("p");
+            empty.className = "empty";
+            empty.textContent = products.length
+              ? "No saved product matches this search."
+              : "No catalogue has been saved on this device yet.";
+            results.append(empty);
+            return;
+          }
+
+          matching.forEach((product) => {
+            const article = document.createElement("article");
+            article.className = "product";
+            const copy = document.createElement("div");
+            copy.className = "product-copy";
+            const name = document.createElement("strong");
+            name.textContent = product.variantName
+              ? `${product.name} — ${product.variantName}`
+              : product.name;
+            const detail = document.createElement("small");
+            detail.textContent = [product.sku, product.rackLocation]
+              .filter(Boolean).join(" · ");
+            copy.append(name, detail);
+            const stock = document.createElement("span");
+            stock.className = "stock";
+            stock.textContent = `${product.stock} last known`;
+            const prices = document.createElement("div");
+            prices.className = "prices";
+            addPrice(prices, "MRP", product.mrpPaise);
+            addPrice(prices, "Standard", product.standardPricePaise);
+            addPrice(prices, "Lowest permitted", product.minimumPricePaise);
+            article.append(copy, stock, prices);
+            results.append(article);
+          });
+        }
+
+        function openDatabase() {
+          return new Promise((resolve, reject) => {
+            const request = indexedDB.open("itsmytoy-offline", 2);
+            request.onupgradeneeded = () => {
+              if (!request.result.objectStoreNames.contains("catalog")) {
+                request.result.createObjectStore("catalog", { keyPath: "key" });
+              }
+              if (!request.result.objectStoreNames.contains("device")) {
+                request.result.createObjectStore("device", { keyPath: "key" });
+              }
+            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+        }
+
+        function readRecord(database, storeName) {
+          return new Promise((resolve, reject) => {
+            const request = database.transaction(storeName, "readonly")
+              .objectStore(storeName).get("current");
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => reject(request.error);
+          });
+        }
+
+        function showDevice(device, catalogue) {
+          if (!device || (catalogue && device.cacheKey !== catalogue.cacheKey)) {
+            setState(
+              deviceState,
+              "Device not validated",
+              "Reconnect to enroll this browser. Catalogue lookup remains read only.",
+              "warning",
+            );
+            return;
+          }
+          if (device.status === "REVOKED") {
+            setState(
+              deviceState,
+              "Offline access revoked",
+              "The saved catalogue remains read only.",
+              "danger",
+            );
+            return;
+          }
+          if (device.status === "PENDING") {
+            setState(
+              deviceState,
+              "Owner approval pending",
+              "An owner must approve this device before future offline sales.",
+              "warning",
+            );
+            return;
+          }
+          const expiry = device.graceExpiresAt
+            ? new Date(device.graceExpiresAt)
+            : null;
+          if (
+            !expiry
+            || !Number.isFinite(expiry.getTime())
+            || expiry.getTime() <= Date.now()
+          ) {
+            setState(
+              deviceState,
+              "Device validation expired",
+              "Reconnect to renew validation. Catalogue lookup remains read only.",
+              "warning",
+            );
+            return;
+          }
+          setState(
+            deviceState,
+            "Device validation is current",
+            `Validated until ${date.format(expiry)}.`,
+            "",
+          );
+        }
+
+        async function start() {
+          let database;
+          try {
+            database = await openDatabase();
+            const [catalogue, device] = await Promise.all([
+              readRecord(database, "catalog"),
+              readRecord(database, "device"),
+            ]);
+            if (catalogue) {
+              products = Array.isArray(catalogue.products) ? catalogue.products : [];
+              setState(
+                catalogueState,
+                `${products.length} saved products`,
+                `Last saved ${date.format(new Date(catalogue.asOf))}. Stock may have changed.`,
+                "warning",
+              );
+            } else {
+              setState(
+                catalogueState,
+                "No saved catalogue",
+                "Reconnect and open the Sell screen once to prepare offline lookup.",
+                "warning",
+              );
+            }
+            showDevice(device, catalogue);
+            render();
+          } catch {
+            setState(
+              catalogueState,
+              "Saved catalogue unavailable",
+              "Reconnect and open the Sell screen to prepare this browser.",
+              "danger",
+            );
+            setState(
+              deviceState,
+              "Device status unavailable",
+              "No offline authority is available.",
+              "danger",
+            );
+            render();
+          } finally {
+            if (database) database.close();
+          }
+        }
+
+        search.addEventListener("input", () => render(search.value));
+        document.querySelector("#reconnect").addEventListener("click", () => {
+          window.location.assign("/");
+        });
+        window.addEventListener("online", () => window.location.assign("/"));
+        start();
+      })();
+    </script>
+  </body>
+</html>

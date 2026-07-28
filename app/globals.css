@@ -282,6 +282,46 @@ a:focus-visible {
   font-weight: 800;
 }
 
+.offline-readiness {
+  display: grid;
+  gap: 8px;
+  margin: -10px 0 22px;
+}
+.offline-readiness .catalog-sync-state { margin: 0; }
+.device-readiness {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #d9e6df;
+  border-radius: 14px;
+  padding: 10px 13px;
+  background: #f7faf8;
+  color: #285d52;
+  font-size: 0.76rem;
+}
+.device-readiness > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: #168276;
+}
+.device-readiness > div { display: grid; gap: 2px; }
+.device-readiness small { color: #667085; }
+.device-readiness.pending,
+.device-readiness.expired,
+.device-readiness.unenrolled {
+  border-color: #f0c67a;
+  background: #fffaf0;
+  color: #765200;
+}
+.device-readiness.revoked {
+  border-color: #e9aba7;
+  background: #fff1f0;
+  color: #8e2d28;
+}
+
 .offline-read-only {
   margin: 14px 0;
   border-left: 4px solid #d79122;
@@ -2358,6 +2398,8 @@ fieldset { margin: 0; border: 0; padding: 0; }
   font-weight: 850;
 }
 .access-pill.active { background: #e6f5ee; color: #17633e; }
+.access-pill.pending { background: #fff3d5; color: #765200; }
+.access-pill.revoked { background: #feeceb; color: #9c2e29; }
 .access-pill.waiting { background: #fff3d5; color: #765200; }
 .access-pill.owner { background: #e8f0f8; color: #16324f; }
 .team-actions {
@@ -2387,6 +2429,19 @@ fieldset { margin: 0; border: 0; padding: 0; }
 .inline-access-field {
   grid-template-columns: auto minmax(150px, 1fr);
   align-items: center;
+}
+.device-section-note {
+  margin: -5px 0 17px;
+  color: #697386;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.device-empty {
+  margin: 0;
+  border-radius: 14px;
+  padding: 15px;
+  background: #f4f6f1;
+  color: #697386;
 }
 
 @media (max-width: 900px) {

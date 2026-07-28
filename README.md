@@ -8,6 +8,7 @@ The current increment proves:
 - hosted WorkOS sign-in with application-controlled roles;
 - automatic first-owner activation from one configured verified email;
 - owner-managed staff invitations, role changes and access removal without database access;
+- owner-managed device approval and revocation, with automatic owner-device enrollment;
 - a restricted PostgreSQL runtime identity separate from schema migration access;
 - versioned relational schema for users, products, variants, barcodes, prices, sales and stock;
 - an idempotent transaction that remains single-write under concurrent retries;
@@ -15,6 +16,8 @@ The current increment proves:
 - request IDs, structured redacted logs, health checks and security headers;
 - unit, real-PostgreSQL integration and mobile Playwright tests;
 - mobile-friendly SKU or barcode search with stock and rack visibility;
+- installable PWA with a role-safe saved catalogue, 12-hour device validation
+  and a dependable read-only relaunch when the network is unavailable;
 - rear-camera barcode scanning with exact-product lookup and manual-search fallback;
 - role-safe recent sale and approval history for owners and store operators;
 - role-controlled pricing, multi-item sale completion and atomic stock reduction;

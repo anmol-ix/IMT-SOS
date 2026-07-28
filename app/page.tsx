@@ -4,6 +4,7 @@ import {
   getCurrentUser,
 } from "@/server/auth/current-user";
 import { searchSellableProducts } from "@/server/catalog";
+import ClearOfflineAccess from "./ClearOfflineAccess";
 import SellWorkspace from "./SellWorkspace";
 
 export default async function Home() {
@@ -17,6 +18,7 @@ export default async function Home() {
       if (error instanceof AccessNotApprovedError) {
         return (
           <main className="signed-out">
+            <ClearOfflineAccess />
             <section className="card access-card">
               <p className="eyebrow">Sign-in successful</p>
               <h1>This email does not have access yet.</h1>
@@ -56,6 +58,7 @@ export default async function Home() {
 
   return (
     <main className="signed-out">
+      <ClearOfflineAccess />
       <section className="card sign-in-card">
         <p className="eyebrow">ItsMyToy Operations</p>
         <h1>Sell toys without calling the owner.</h1>

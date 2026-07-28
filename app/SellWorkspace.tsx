@@ -6,11 +6,22 @@ import {
   readOfflineCatalog,
   saveOfflineCatalog,
 } from "@/client/offline-catalog";
+import {
+  browserDeviceName,
+  getDevicePublicId,
+  readOfflineDevice,
+  saveOfflineDevice,
+} from "@/client/offline-device";
+import { clearOfflineAccess } from "@/client/offline-storage";
 import { useOnlineStatus } from "@/client/use-online-status";
 import {
   searchOfflineCatalog,
   type OfflineCatalogSnapshot,
 } from "@/shared/offline-catalog";
+import {
+  offlineDeviceState,
+  type OfflineDeviceEnrollment,
+} from "@/shared/offline-device";
 import BarcodeScanner from "./BarcodeScanner";
 
 type Product = {
@@ -168,6 +179,40 @@ function roleLabel(role: Props["role"]) {
   return "Store operator";
 }
 
+function deviceStateCopy(enrollment: OfflineDeviceEnrollment | null) {
+  const state = offlineDeviceState(enrollment);
+  if (state === "ACTIVE") {
+    return {
+      title: "This device is enrolled",
+      detail: enrollment?.graceExpiresAt
+        ? `Validated until ${catalogDate.format(new Date(enrollment.graceExpiresAt))}`
+        : "Device validation is current.",
+    };
+  }
+  if (state === "PENDING") {
+    return {
+      title: "Device approval pending",
+      detail: "An owner must approve this device before future offline sales are enabled.",
+    };
+  }
+  if (state === "REVOKED") {
+    return {
+      title: "Offline access revoked",
+      detail: "Online selling still works. This device cannot receive offline selling access.",
+    };
+  }
+  if (state === "EXPIRED") {
+    return {
+      title: "Offline validation expired",
+      detail: "Reconnect to validate this device. The saved catalogue remains read only.",
+    };
+  }
+  return {
+    title: "Device enrollment unavailable",
+    detail: "Reconnect to register this browser for bounded offline access.",
+  };
+}
+
 export default function SellWorkspace({
   cacheKey,
   displayName,
@@ -217,6 +262,11 @@ export default function SellWorkspace({
   const [catalogStatus, setCatalogStatus] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
+  const [offlineDevice, setOfflineDevice] =
+    useState<OfflineDeviceEnrollment | null>(null);
+  const [deviceStatus, setDeviceStatus] = useState<
+    "loading" | "ready" | "unavailable"
+  >("loading");
 
   const refreshOfflineCatalog = useCallback(async () => {
     if (!navigator.onLine) return;
@@ -234,6 +284,40 @@ export default function SellWorkspace({
     }
   }, [cacheKey]);
 
+  const refreshDeviceEnrollment = useCallback(async () => {
+    if (!navigator.onLine) return;
+    try {
+      const devicePublicId = await getDevicePublicId(cacheKey);
+      const response = await fetch("/api/v1/devices", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          devicePublicId,
+          displayName: browserDeviceName(),
+        }),
+      });
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          await clearOfflineAccess();
+          setOfflineDevice(null);
+          setDeviceStatus("unavailable");
+          return;
+        }
+        throw new Error("Device enrollment unavailable");
+      }
+      const { device } = await response.json() as {
+        device: OfflineDeviceEnrollment;
+      };
+      await saveOfflineDevice(cacheKey, device);
+      setOfflineDevice(device);
+      setDeviceStatus("ready");
+    } catch {
+      const cached = await readOfflineDevice(cacheKey).catch(() => null);
+      setOfflineDevice(cached);
+      setDeviceStatus(cached ? "ready" : "unavailable");
+    }
+  }, [cacheKey]);
+
   useEffect(() => {
     if (online) {
       queueMicrotask(() => void refreshOfflineCatalog());
@@ -246,6 +330,19 @@ export default function SellWorkspace({
       })
       .catch(() => setCatalogStatus("unavailable"));
   }, [cacheKey, online, refreshOfflineCatalog]);
+
+  useEffect(() => {
+    if (online) {
+      queueMicrotask(() => void refreshDeviceEnrollment());
+      return;
+    }
+    void readOfflineDevice(cacheKey)
+      .then((cached) => {
+        setOfflineDevice(cached);
+        setDeviceStatus(cached ? "ready" : "unavailable");
+      })
+      .catch(() => setDeviceStatus("unavailable"));
+  }, [cacheKey, online, refreshDeviceEnrollment]);
 
   function resetGuestDecision() {
     setGuestApproval(null);
@@ -800,36 +897,52 @@ export default function SellWorkspace({
         </form>}
 
         {!receipt && (
-          <div
-            className={`catalog-sync-state ${online ? catalogStatus : "offline"}`}
-            role="status"
-          >
-            <span aria-hidden="true">{online ? "✓" : "!"}</span>
-            <div>
-              <strong>
-                {online
-                  ? catalogStatus === "ready"
-                    ? "Offline lookup ready"
-                    : catalogStatus === "loading"
-                      ? "Preparing offline lookup"
-                      : "Offline lookup unavailable"
-                  : offlineCatalog
-                    ? "Saved catalogue — read only"
-                    : "No saved catalogue on this device"}
-              </strong>
-              <small>
-                {offlineCatalog
-                  ? `${offlineCatalog.products.length} products · saved ${catalogDate.format(new Date(offlineCatalog.asOf))}${online ? "" : " · stock may have changed"}`
-                  : online
-                    ? "Keep this screen open while the catalogue is prepared."
-                    : "Reconnect once before using offline product lookup."}
-              </small>
+          <div className="offline-readiness" role="status">
+            <div
+              className={`catalog-sync-state ${online ? catalogStatus : "offline"}`}
+            >
+              <span aria-hidden="true">{online ? "✓" : "!"}</span>
+              <div>
+                <strong>
+                  {online
+                    ? catalogStatus === "ready"
+                      ? "Offline lookup ready"
+                      : catalogStatus === "loading"
+                        ? "Preparing offline lookup"
+                        : "Offline lookup unavailable"
+                    : offlineCatalog
+                      ? "Saved catalogue — read only"
+                      : "No saved catalogue on this device"}
+                </strong>
+                <small>
+                  {offlineCatalog
+                    ? `${offlineCatalog.products.length} products · saved ${catalogDate.format(new Date(offlineCatalog.asOf))}${online ? "" : " · stock may have changed"}`
+                    : online
+                      ? "Keep this screen open while the catalogue is prepared."
+                      : "Reconnect once before using offline product lookup."}
+                </small>
+              </div>
+              {online && catalogStatus === "unavailable" && (
+                <button type="button" onClick={() => void refreshOfflineCatalog()}>
+                  Retry
+                </button>
+              )}
             </div>
-            {online && catalogStatus === "unavailable" && (
-              <button type="button" onClick={() => void refreshOfflineCatalog()}>
-                Retry
-              </button>
-            )}
+            <div className={`device-readiness ${offlineDeviceState(offlineDevice).toLowerCase()}`}>
+              <span aria-hidden="true">◉</span>
+              <div>
+                <strong>
+                  {deviceStatus === "loading"
+                    ? "Checking this device"
+                    : deviceStateCopy(offlineDevice).title}
+                </strong>
+                <small>
+                  {deviceStatus === "loading"
+                    ? "This does not interrupt online selling."
+                    : deviceStateCopy(offlineDevice).detail}
+                </small>
+              </div>
+            </div>
           </div>
         )}
 

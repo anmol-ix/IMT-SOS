@@ -1,9 +1,12 @@
 "use client";
 
+import {
+  OFFLINE_CATALOG_STORE,
+  openOfflineDatabase,
+  transactionComplete,
+} from "@/client/offline-storage";
 import type { OfflineCatalogSnapshot } from "@/shared/offline-catalog";
 
-const DATABASE_NAME = "itsmytoy-offline";
-const STORE_NAME = "catalog";
 const RECORD_KEY = "current";
 
 type StoredCatalog = OfflineCatalogSnapshot & {
@@ -11,33 +14,14 @@ type StoredCatalog = OfflineCatalogSnapshot & {
   cacheKey: string;
 };
 
-function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE_NAME, { keyPath: "key" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction) {
-  return new Promise<void>((resolve, reject) => {
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error);
-  });
-}
-
 export async function saveOfflineCatalog(
   cacheKey: string,
   snapshot: OfflineCatalogSnapshot,
 ) {
-  const database = await openDatabase();
+  const database = await openOfflineDatabase();
   try {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = database.transaction(OFFLINE_CATALOG_STORE, "readwrite");
+    const store = transaction.objectStore(OFFLINE_CATALOG_STORE);
     store.clear();
     store.put({ ...snapshot, key: RECORD_KEY, cacheKey } satisfies StoredCatalog);
     await transactionComplete(transaction);
@@ -49,10 +33,10 @@ export async function saveOfflineCatalog(
 export async function readOfflineCatalog(
   cacheKey: string,
 ): Promise<OfflineCatalogSnapshot | null> {
-  const database = await openDatabase();
+  const database = await openOfflineDatabase();
   try {
-    const transaction = database.transaction(STORE_NAME, "readonly");
-    const request = transaction.objectStore(STORE_NAME).get(RECORD_KEY);
+    const transaction = database.transaction(OFFLINE_CATALOG_STORE, "readonly");
+    const request = transaction.objectStore(OFFLINE_CATALOG_STORE).get(RECORD_KEY);
     const stored = await new Promise<StoredCatalog | undefined>((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);

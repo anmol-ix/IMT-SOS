@@ -112,9 +112,14 @@ Complete:
 - M4.2: role-safe IndexedDB catalogue snapshot with every recognised barcode,
   permitted prices, rack and last-known stock; offline SKU/barcode/name lookup
   remains read-only and clearly marks stale stock
-- Next: enrolled-device identity and bounded offline relaunch, followed by
-  queued normal Guest sales
-- Sync conflicts, cached-stock warning and device visibility
+- M4.3: database-enforced device enrollment, automatic owner-device approval,
+  owner approval/revocation for operator devices, visible 12-hour validation
+  state and a service-worker fallback that reliably reopens the saved read-only
+  catalogue without caching authenticated application pages
+- Next — M4.4: queued normal-price Guest sales on approved devices, limited to
+  Cash/UPI, no customer PII, cached price floors and the one-unit stock reserve
+- Later in M4: ordered idempotent sync, conflict handling, queued-command
+  visibility and cached-stock warnings
 
 ## M5 — Workbook migration — Not started
 
