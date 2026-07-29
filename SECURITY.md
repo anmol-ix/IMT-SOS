@@ -68,6 +68,14 @@
 - Responses use no-store caching and baseline browser security headers.
 - WorkOS staging now requires MFA for non-SSO users and does not allow public self-sign-up.
 - Live staging checks passed for Google sign-in, MFA, session revocation, owner authorization and store-operator denial.
+- Workbook validation is owner-only, hash-bound and append-only for the runtime
+  role. It stores source coordinates, normalized rows and exceptions without
+  granting any live product, customer, sale or stock import capability.
+- Child name, birthday and age are redacted before staging and are not included
+  in Phase 1 normalized customer data.
+- Production workbook uploads remain disabled unless
+  `WORKBOOK_VALIDATION_ENABLED=1`; enable it only after the backup/restore gate
+  is approved.
 
 ## Open external proofs before business-feature work
 

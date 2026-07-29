@@ -2570,3 +2570,233 @@ fieldset { margin: 0; border: 0; padding: 0; }
     gap: 4px;
   }
 }
+
+.migration-page {
+  display: grid;
+  gap: 24px;
+  max-width: 1180px;
+}
+.migration-safety {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid #9bcdbf;
+  border-radius: 16px;
+  padding: 15px 18px;
+  background: #ecf8f4;
+  color: #17633e;
+}
+.migration-safety span { color: #42655a; }
+.migration-panel {
+  border: 1px solid #dfe3d6;
+  border-radius: 22px;
+  padding: 22px;
+  background: white;
+  box-shadow: 0 12px 35px rgba(35, 46, 37, 0.05);
+}
+.migration-section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.migration-section-heading h2,
+.migration-section-heading h3 { margin: 3px 0 0; color: #16324f; }
+.migration-section-heading p { margin: 6px 0 0; color: #697386; }
+.migration-section-heading > span {
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: #f1f4ee;
+  color: #526173;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.migration-upload {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+.migration-upload label {
+  display: grid;
+  gap: 8px;
+  color: #344054;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.migration-upload input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #ccd5c7;
+  border-radius: 13px;
+  padding: 10px;
+  background: white;
+  color: #526173;
+}
+.migration-upload .button {
+  min-height: 48px;
+  border: 0;
+  cursor: pointer;
+}
+.migration-upload .button:disabled { cursor: wait; opacity: 0.6; }
+.migration-help {
+  margin: 15px 0 0;
+  color: #697386;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.migration-error {
+  margin: 15px 0 0;
+  border-radius: 13px;
+  padding: 12px 14px;
+  background: #fff1f0;
+  color: #8e2d28;
+  font-weight: 750;
+}
+.migration-mapping {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.migration-mapping article {
+  border-radius: 16px;
+  padding: 16px;
+  background: #f6f8f4;
+}
+.migration-mapping h3 { margin: 0 0 10px; color: #16324f; }
+.migration-mapping p {
+  margin: 7px 0 0;
+  color: #526173;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.migration-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.migration-metrics article {
+  display: grid;
+  gap: 6px;
+  min-height: 135px;
+  border: 1px solid #e1e5dc;
+  border-radius: 16px;
+  padding: 16px;
+}
+.migration-metrics article.safe { background: #eef8f3; }
+.migration-metrics article.urgent { background: #fff0ef; border-color: #efc3bf; }
+.migration-metrics article.waiting { background: #fff8e7; border-color: #ead9ad; }
+.migration-metrics small { color: #697386; font-weight: 800; }
+.migration-metrics strong { color: #16324f; font-size: 2rem; }
+.migration-metrics span { color: #697386; font-size: 0.76rem; line-height: 1.4; }
+.migration-reconciliation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.migration-reconciliation div {
+  display: grid;
+  gap: 6px;
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #f4f6f1;
+}
+.migration-reconciliation span { color: #697386; font-size: 0.76rem; font-weight: 800; }
+.migration-reconciliation strong { color: #26354b; }
+.migration-exceptions { margin-top: 24px; }
+.migration-issue-list { display: grid; gap: 12px; }
+.migration-issue-list > article {
+  border: 1px solid #e1e5dc;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.migration-row-heading {
+  display: grid;
+  grid-template-columns: minmax(180px, auto) 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 15px;
+  background: #f6f8f4;
+}
+.migration-row-heading span { color: #526173; font-size: 0.78rem; font-weight: 800; }
+.migration-row-heading strong { color: #26354b; overflow-wrap: anywhere; }
+.migration-row-heading em {
+  border-radius: 999px;
+  padding: 6px 9px;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 850;
+}
+.migration-row-heading em.quarantined { background: #feeceb; color: #9c2e29; }
+.migration-row-heading em.accepted { background: #e6f5ee; color: #17633e; }
+.migration-issue-list ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 15px 15px;
+  list-style: none;
+}
+.migration-issue-list li {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) 1fr auto;
+  gap: 10px;
+  align-items: center;
+  border-radius: 11px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+}
+.migration-issue-list li.error { background: #fff1f0; color: #7e2925; }
+.migration-issue-list li.warning { background: #fff8e7; color: #765200; }
+.migration-issue-list li code {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.migration-empty {
+  border-radius: 14px;
+  padding: 15px;
+  background: #eef8f3;
+  color: #17633e;
+}
+.migration-history { display: grid; gap: 8px; }
+.migration-history a {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid #e1e5dc;
+  border-radius: 14px;
+  padding: 13px 15px;
+  color: #526173;
+  text-decoration: none;
+}
+.migration-history a.active { border-color: #7fb9a7; background: #eef8f3; }
+.migration-history a > span:first-child { display: grid; gap: 3px; }
+.migration-history strong { color: #26354b; }
+.migration-history small { color: #697386; }
+
+@media (max-width: 900px) {
+  .migration-upload { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .migration-mapping,
+  .migration-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .migration-page { padding-inline: 12px; }
+  .migration-panel { padding: 16px; }
+  .migration-safety,
+  .migration-section-heading,
+  .migration-history a { align-items: stretch; flex-direction: column; }
+  .migration-upload,
+  .migration-mapping,
+  .migration-metrics,
+  .migration-reconciliation { grid-template-columns: 1fr; }
+  .migration-upload .button { width: 100%; }
+  .migration-row-heading,
+  .migration-issue-list li { grid-template-columns: 1fr; }
+  .migration-issue-list li code { max-width: 100%; }
+}

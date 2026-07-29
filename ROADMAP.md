@@ -127,15 +127,37 @@ Complete:
 - Cached-stock warnings now show snapshot age and the exact last-known minus
   queued minus one-unit-reserve calculation before an offline quantity is used
 
-Next: M5 workbook migration, beginning with read-only source mapping,
-validation and quarantine rules before any live import.
+## M5 — Workbook migration — In progress
 
-## M5 — Workbook migration — Not started
+M5.1 complete:
 
-- Import mapping, validation/quarantine and exception report
-- Opening movements, customer import, reconciliation and rollback rehearsal
+- Owner-only upload of matching `Inventory Master`, `Sales Log` and `Customers`
+  CSV exports into immutable read-only staging
+- Combined snapshot hash and per-file hashes, with idempotent replay of an
+  already validated snapshot
+- Explicit source mapping that ignores workbook dashboards and derived customer
+  totals instead of treating formulas as accounting truth
+- Row-level normalization with original sheet and row coordinates
+- Quarantine for duplicate or invalid SKUs, missing product references,
+  zero-price sales, quantity × unit-price mismatches, invalid stock arithmetic,
+  sold-quantity disagreement and invalid customer masters
+- Separate warnings for below-cost sales, missing payment/channel and excluded
+  customer information
+- Child name, birthday and age redacted from staging and excluded from Phase 1
+- Persistent owner exception report with source/accepted/quarantined counts,
+  source versus accepted unit/revenue totals and immutable audit evidence
+- Runtime database role can insert/select staging evidence but cannot update or
+  delete it
+- No product, customer, sale, price, balance or inventory-movement import action
+  exists yet
+- Production workbook uploads remain disabled until the backup/restore safety
+  gate is approved
 
-## M6 — Railway staging validation — Not started
+Next: complete the Railway backup/restore safety gate, then run the first real
+read-only workbook validation and resolve its quarantine report before building
+opening movements or customer/sale import.
+
+## M6 — Railway staging validation — Next safety gate
 
 The application can now be deployed safely with synthetic staging data. Private
 database connectivity, WorkOS callback, owner access, latency, PITR restore and

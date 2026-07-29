@@ -58,6 +58,7 @@ export default async function DashboardPage() {
           <Link href="/receive">Receive</Link>
           <Link href="/inventory">Inventory</Link>
           <Link href="/activity">Activity</Link>
+          <Link href="/migration">Migration</Link>
           <Link href="/team">Team</Link>
         </nav>
         <span className="role-chip">Business owner</span>
