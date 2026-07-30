@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import BrandMark from "@/components/BrandMark";
 import { currentSessionUser } from "@/server/auth/session";
 
 type Props = {
@@ -13,6 +14,7 @@ export default async function ActivatePage({ searchParams }: Props) {
   return (
     <main className="signed-out">
       <section className="card sign-in-card">
+        <BrandMark className="auth-brand" />
         <p className="eyebrow">Private account setup</p>
         <h1>Create your password.</h1>
         <p className="lede">

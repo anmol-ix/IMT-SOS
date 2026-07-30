@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 
 type Role = "BUSINESS_OWNER" | "TRUSTED_OPERATOR" | "STORE_OPERATOR";
 type StockCondition = "SELLABLE" | "OPEN_BOX" | "DAMAGED";
@@ -97,11 +98,6 @@ const happenedAt = new Intl.DateTimeFormat("en-IN", {
 
 function formatMoney(paise: number) {
   return money.format(paise / 100);
-}
-
-function roleLabel(role: Role) {
-  if (role === "BUSINESS_OWNER") return "Business owner";
-  return role === "TRUSTED_OPERATOR" ? "Trusted operator" : "Store operator";
 }
 
 function conditionLabel(condition: string) {
@@ -366,32 +362,14 @@ export default function InventoryWorkspace({
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          {role === "BUSINESS_OWNER" && <Link href="/dashboard">Home</Link>}
-          <Link href="/">Sell</Link>
-          {role !== "STORE_OPERATOR" && <Link href="/receive">Receive</Link>}
-          <Link className="active" href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">{roleLabel(role)}</span>
-      </header>
-
+    <AppShell displayName={displayName} role={role}>
       <section className="sell-page inventory-page" aria-labelledby="inventory-heading">
-        <div className="page-heading">
-          <p className="eyebrow">Stock truth</p>
-          <h1 id="inventory-heading">Count. Explain. Correct.</h1>
-          <p>
-            Search a product, compare the physical count with the recorded balance,
-            and trace every completed stock movement.
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Stock control"
+          headingId="inventory-heading"
+          title="Inventory"
+          description="Search stock, verify physical quantities and trace every movement."
+        />
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
@@ -725,6 +703,6 @@ export default function InventoryWorkspace({
           </section>
         </div>
       </section>
-    </main>
+    </AppShell>
   );
 }

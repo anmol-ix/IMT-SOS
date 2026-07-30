@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import PageHeader from "@/components/ui/PageHeader";
 import type {
   AccessInvitation,
   TeamAccessView,
@@ -201,14 +202,12 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
 
   return (
     <section className="sell-page team-page" aria-labelledby="team-access-heading">
-      <div className="page-heading">
-        <p className="eyebrow">Owner control</p>
-        <h1 id="team-access-heading">Team &amp; Access</h1>
-        <p>
-          Create access for a team member, then share their one-time password
-          setup link privately.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Owner control"
+        headingId="team-access-heading"
+        title="Team & devices"
+        description="Manage account roles, setup links and approved devices."
+      />
 
       {(message || error) && (
         <div className={error ? "team-notice error" : "team-notice"} role="status">

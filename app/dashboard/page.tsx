@@ -1,4 +1,6 @@
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 import { requireCurrentUser } from "@/server/auth/current-user";
 import { getDailyClosingView } from "@/server/daily-closing";
 import { getOwnerDashboard } from "@/server/owner-dashboard";
@@ -46,41 +48,21 @@ export default async function DashboardPage() {
     + dashboard.dataQuality.missingActivePriceCount;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {user.displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          <Link className="active" href="/dashboard">Home</Link>
-          <Link href="/">Sell</Link>
-          <Link href="/receive">Receive</Link>
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-          <Link href="/migration">Migration</Link>
-          <Link href="/team">Team</Link>
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">Business owner</span>
-      </header>
-
+    <AppShell displayName={user.displayName} role="BUSINESS_OWNER">
       <section className="sell-page dashboard-page" aria-labelledby="dashboard-heading">
-        <div className="dashboard-heading">
-          <div className="page-heading">
-            <p className="eyebrow">Owner control · {dashboard.businessDate}</p>
-            <h1 id="dashboard-heading">Know what needs attention.</h1>
-            <p>
-              Today’s shop position, pending decisions and stock risk—linked
-              directly to the operational record behind each number.
-            </p>
-          </div>
-          <div className="dashboard-updated">
-            <span>Updated</span>
-            <strong>{updatedAt.format(new Date(dashboard.asOf))}</strong>
-            <Link href="/dashboard">Refresh</Link>
-          </div>
-        </div>
+        <PageHeader
+          eyebrow={`Owner overview · ${dashboard.businessDate}`}
+          headingId="dashboard-heading"
+          title="Operations overview"
+          description="Today’s position, pending decisions and stock risk."
+          actions={
+            <div className="dashboard-updated">
+              <span>Updated</span>
+              <strong>{updatedAt.format(new Date(dashboard.asOf))}</strong>
+              <Link href="/dashboard">Refresh</Link>
+            </div>
+          }
+        />
 
         <section className="dashboard-section" aria-labelledby="today-heading">
           <div className="section-title">
@@ -380,6 +362,6 @@ export default async function DashboardPage() {
           </Link>
         </section>
       </section>
-    </main>
+    </AppShell>
   );
 }

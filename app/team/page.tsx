@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { requireCurrentUser } from "@/server/auth/current-user";
 import { listDevices } from "@/server/devices";
 import { listTeamAccess } from "@/server/team-access";
+import AppShell from "@/components/AppShell";
 import TeamWorkspace from "./TeamWorkspace";
 
 export default async function TeamPage() {
@@ -12,25 +12,8 @@ export default async function TeamPage() {
   ]);
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {user.displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          <Link href="/dashboard">Home</Link>
-          <Link href="/">Sell</Link>
-          <Link href="/receive">Receive</Link>
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-          <Link className="active" href="/team">Team</Link>
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">Business owner</span>
-      </header>
-
+    <AppShell displayName={user.displayName} role="BUSINESS_OWNER">
       <TeamWorkspace initialTeam={initialTeam} initialDevices={initialDevices} />
-    </main>
+    </AppShell>
   );
 }

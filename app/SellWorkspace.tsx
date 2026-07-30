@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import {
   readOfflineCatalog,
   saveOfflineCatalog,
@@ -35,6 +34,8 @@ import {
   type OfflineSalePaymentMode,
 } from "@/shared/offline-sale";
 import BarcodeScanner from "./BarcodeScanner";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 
 type Product = {
   id: string;
@@ -193,12 +194,6 @@ async function copyText(text: string) {
     field.remove();
     if (!copied) throw new Error("Copy failed");
   }
-}
-
-function roleLabel(role: Props["role"]) {
-  if (role === "BUSINESS_OWNER") return "Business owner";
-  if (role === "TRUSTED_OPERATOR") return "Trusted operator";
-  return "Store operator";
 }
 
 function deviceStateCopy(enrollment: OfflineDeviceEnrollment | null) {
@@ -1099,34 +1094,16 @@ export default function SellWorkspace({
   const queuedSalesBlockOnlineCheckout = online && offlineSales.length > 0;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          {role === "BUSINESS_OWNER" && <Link href="/dashboard">Home</Link>}
-          <Link className="active" href="/">Sell</Link>
-          {role !== "STORE_OPERATOR" && <Link href="/receive">Receive</Link>}
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-          {role === "BUSINESS_OWNER" && <Link href="/team">Team</Link>}
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">{roleLabel(role)}</span>
-      </header>
-
+    <AppShell displayName={displayName} role={role}>
       <section className="sell-page" aria-labelledby="sell-heading">
-        <div className="page-heading">
-          <p className="eyebrow">{receipt ? "Sale complete" : "New retail sale"}</p>
-          <h1 id="sell-heading">{receipt ? "Receipt ready." : "Scan. Price. Cart."}</h1>
-          <p>
-            {receipt
-              ? "The sale, payments and stock deduction were saved together."
-              : "Every product, price and stock balance is checked again at checkout."}
-          </p>
-        </div>
+        <PageHeader
+          eyebrow={receipt ? "Sale complete" : "New retail sale"}
+          headingId="sell-heading"
+          title={receipt ? "Receipt ready" : "Create sale"}
+          description={receipt
+            ? "The sale, payments and stock deduction were saved together."
+            : "Scan a product, apply the permitted price and complete the sale."}
+        />
 
         {!receipt && <form className="search-bar" onSubmit={search}>
           <label htmlFor="product-search">Scan or enter SKU, barcode or product name</label>
@@ -1850,6 +1827,6 @@ export default function SellWorkspace({
           </section>
         </div>}
       </section>
-    </main>
+    </AppShell>
   );
 }

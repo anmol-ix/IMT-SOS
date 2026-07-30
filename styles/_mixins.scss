@@ -1,0 +1,51 @@
+@use "sass:map";
+@use "tokens";
+
+@mixin below($name) {
+  @media (max-width: map.get(tokens.$breakpoints, $name)) {
+    @content;
+  }
+}
+
+@mixin above($name) {
+  @media (min-width: calc(map.get(tokens.$breakpoints, $name) + 0.02px)) {
+    @content;
+  }
+}
+
+@mixin surface($radius: var(--radius-lg)) {
+  border: 1px solid var(--border-subtle);
+  border-radius: $radius;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-xs);
+}
+
+@mixin focus-ring {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@mixin scrollbar {
+  scrollbar-color: var(--gray-300) transparent;
+  scrollbar-width: thin;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-full);
+    background: var(--gray-300);
+    background-clip: padding-box;
+  }
+}
+
+@mixin mobile-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-xs);
+}

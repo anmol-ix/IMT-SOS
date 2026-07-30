@@ -1,8 +1,10 @@
+import BrandMark from "@/components/BrandMark";
+
 export default function SignOutPage() {
   return (
     <main className="signed-out">
       <section className="card sign-in-card">
-        <p className="eyebrow">ItsMyToy Operations</p>
+        <BrandMark className="auth-brand" />
         <h1>Sign out?</h1>
         <p className="lede">This will end the session on this device only.</p>
         <form action="/api/v1/auth/logout" method="post">

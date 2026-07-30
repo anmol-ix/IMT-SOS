@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import type { Route } from "next";
+import BrandMark from "@/components/BrandMark";
 import { currentSessionUser, safeReturnPath } from "@/server/auth/session";
 
 type Props = {
@@ -14,7 +15,7 @@ export default async function SignInPage({ searchParams }: Props) {
   return (
     <main className="signed-out">
       <section className="card sign-in-card">
-        <p className="eyebrow">ItsMyToy Operations</p>
+        <BrandMark className="auth-brand" />
         <h1>Welcome back.</h1>
         <p className="lede">
           Use the email and password configured for this internal operations app.

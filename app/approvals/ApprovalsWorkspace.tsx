@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 
 type Approval = {
   id: string;
@@ -314,35 +315,19 @@ export default function ApprovalsWorkspace({
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          <Link href="/dashboard">Home</Link>
-          <Link href="/">Sell</Link>
-          <Link href="/receive">Receive</Link>
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">Business owner</span>
-      </header>
-
+    <AppShell displayName={displayName} role="BUSINESS_OWNER">
       <section className="sell-page" aria-labelledby="approval-heading">
-        <div className="page-heading approval-heading">
-          <div>
-            <p className="eyebrow">Owner control</p>
-            <h1 id="approval-heading">Approvals</h1>
-            <p>
-              Review rejected offline sales, stock-count differences,
-              customer-declined Guest sales and lower-price exceptions.
-            </p>
-          </div>
-          <button type="button" className="refresh-button" onClick={refresh}>Refresh</button>
-        </div>
+        <PageHeader
+          eyebrow="Owner control"
+          headingId="approval-heading"
+          title="Approvals"
+          description="Review offline conflicts, stock differences and price exceptions."
+          actions={
+            <button type="button" className="refresh-button" onClick={refresh}>
+              Refresh
+            </button>
+          }
+        />
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
@@ -664,6 +649,6 @@ export default function ApprovalsWorkspace({
         </div>
         </section>
       </section>
-    </main>
+    </AppShell>
   );
 }

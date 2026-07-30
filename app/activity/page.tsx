@@ -1,4 +1,6 @@
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 import { requireCurrentUser } from "@/server/auth/current-user";
 import {
   listActivity,
@@ -131,41 +133,19 @@ export default async function ActivityPage({
       ? requestedType
       : "ALL";
   const items = await listActivity(user, filter);
-  const roleLabel = user.role === "BUSINESS_OWNER"
-    ? "Business owner"
-    : user.role === "TRUSTED_OPERATOR"
-      ? "Trusted operator"
-      : "Store operator";
-
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {user.displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          {user.role === "BUSINESS_OWNER" && <Link href="/dashboard">Home</Link>}
-          <Link href="/">Sell</Link>
-          {user.role !== "STORE_OPERATOR" && <Link href="/receive">Receive</Link>}
-          <Link href="/inventory">Inventory</Link>
-          <Link className="active" href="/activity">Activity</Link>
-          {user.role === "BUSINESS_OWNER" && <Link href="/team">Team</Link>}
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">{roleLabel}</span>
-      </header>
-
+    <AppShell displayName={user.displayName} role={user.role}>
       <section className="sell-page activity-page" aria-labelledby="activity-heading">
-        <div className="page-heading">
-          <p className="eyebrow">Operational history</p>
-          <h1 id="activity-heading">Activity</h1>
-          <p>
-            {user.role === "BUSINESS_OWNER"
+        <PageHeader
+          eyebrow="Operational history"
+          headingId="activity-heading"
+          title="Activity"
+          description={
+            user.role === "BUSINESS_OWNER"
               ? "Recent sales and approval decisions across the business."
-              : "Your recent sales and approval requests."}
-          </p>
-        </div>
+              : "Your recent sales and approval requests."
+          }
+        />
 
         <div className="activity-toolbar">
           <nav className="activity-filters" aria-label="Activity type">
@@ -197,6 +177,6 @@ export default async function ActivityPage({
           </section>
         )}
       </section>
-    </main>
+    </AppShell>
   );
 }

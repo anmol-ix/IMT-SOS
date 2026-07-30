@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 import type {
   WorkbookBatch,
   WorkbookReport,
@@ -75,35 +77,14 @@ export default function MigrationWorkspace({
   const warningCount = initialReport ? countIssues(initialReport, "WARNING") : 0;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          <Link href="/dashboard">Home</Link>
-          <Link href="/">Sell</Link>
-          <Link href="/receive">Receive</Link>
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-          <Link className="active" href="/migration">Migration</Link>
-          <Link href="/team">Team</Link>
-          <Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">Business owner</span>
-      </header>
-
+    <AppShell displayName={displayName} role="BUSINESS_OWNER">
       <section className="sell-page migration-page" aria-labelledby="migration-heading">
-        <div className="page-heading">
-          <p className="eyebrow">M5 · controlled workbook migration</p>
-          <h1 id="migration-heading">Validate before anything moves.</h1>
-          <p>
-            Export the three source tabs as CSV. This creates a frozen,
-            owner-only validation report; it cannot create products, customers,
-            stock movements or sales.
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Controlled workbook migration"
+          headingId="migration-heading"
+          title="Validate workbook data"
+          description="Create an owner-only validation report before any operational data moves."
+        />
 
         <section className="migration-safety" aria-label="Migration safety boundary">
           <strong>
@@ -336,6 +317,6 @@ export default function MigrationWorkspace({
           </section>
         )}
       </section>
-    </main>
+    </AppShell>
   );
 }

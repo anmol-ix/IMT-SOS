@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 import {
   normalizeSkuCode,
   priceFloorConflict,
@@ -770,28 +771,18 @@ export default function ReceiveWorkspace({
     );
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div><p className="brand">ItsMyToy</p><p className="welcome">Hi, {displayName}</p></div>
-        <nav className="app-nav" aria-label="Operations">
-          {role === "BUSINESS_OWNER" && <Link href="/dashboard">Home</Link>}<Link href="/">Sell</Link><Link className="active" href="/receive">Receive</Link><Link href="/inventory">Inventory</Link><Link href="/activity">Activity</Link><Link href="/sign-out">Sign out</Link>
-        </nav>
-        <span className="role-chip">
-          {role === "BUSINESS_OWNER" ? "Business owner" : "Trusted operator"}
-        </span>
-      </header>
-
+    <AppShell displayName={displayName} role={role}>
       <section className="sell-page" aria-labelledby="receive-heading">
-        <div className="page-heading">
-          <p className="eyebrow">Incoming stock</p>
-          <h1 id="receive-heading">
-            {role === "BUSINESS_OWNER" ? "Build. Check. Receive." : "Build. Save. Owner checks."}
-          </h1>
-          <p>
-            One supplier bill becomes one receipt with all its product lines.
-            {role === "TRUSTED_OPERATOR" && " Stock stays unchanged until owner completion."}
-          </p>
-        </div>
+        <PageHeader
+          eyebrow="Incoming stock"
+          headingId="receive-heading"
+          title={role === "BUSINESS_OWNER" ? "Receive stock" : "Prepare receipt"}
+          description={
+            role === "BUSINESS_OWNER"
+              ? "Build one checked receipt from the supplier bill and add stock."
+              : "Prepare the supplier receipt for owner review; stock remains unchanged."
+          }
+        />
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
@@ -1637,6 +1628,6 @@ export default function ReceiveWorkspace({
           )}
         </section>
       </section>
-    </main>
+    </AppShell>
   );
 }
