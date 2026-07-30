@@ -50,6 +50,8 @@ Complete:
 - Multi-line supplier receipt completed atomically across every included SKU
 - Reusable supplier master with controlled add-and-select workflow
 - Possible duplicate supplier bill warning with explicit checked acknowledgement
+- Compact three-step receiving workspace for supplier bill, delivered products
+  and one final stock confirmation, with a responsive mobile entry sequence
 - Condition-separated sellable, open-box and damaged receipt balances and
   movements; ordinary sales consume sellable stock only
 - Owner-only new-product setup with generated immutable SKU/internal barcode,

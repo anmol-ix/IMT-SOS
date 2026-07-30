@@ -790,24 +790,45 @@ export default function ReceiveWorkspace({
 
   return (
     <AppShell displayName={displayName} role={role}>
-      <section className="sell-page" aria-labelledby="receive-heading">
+      <section className="sell-page receive-page" aria-labelledby="receive-heading">
         <PageHeader
           eyebrow="Incoming stock"
           headingId="receive-heading"
           title={role === "BUSINESS_OWNER" ? "Receive stock" : "Prepare receipt"}
           description={
             role === "BUSINESS_OWNER"
-              ? "Build one checked receipt from the supplier bill and add stock."
-              : "Prepare the supplier receipt for owner review; stock remains unchanged."
+              ? "Enter the supplier bill, add every delivered product, then confirm once to update stock."
+              : "Enter the supplier bill and delivered products for owner review; stock stays unchanged."
           }
         />
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
 
+        <ol className="receive-steps" aria-label="Receiving progress">
+          <li className={supplierId ? "done" : "active"}>
+            <span>1</span>
+            <div><strong>Supplier & bill</strong><small>Identify this delivery</small></div>
+          </li>
+          <li className={receiptLines.length ? "done" : supplierId ? "active" : ""}>
+            <span>2</span>
+            <div><strong>Add products</strong><small>Quantity and bill cost</small></div>
+          </li>
+          <li className={receiptLines.length ? "active" : ""}>
+            <span>3</span>
+            <div>
+              <strong>{role === "BUSINESS_OWNER" ? "Add to stock" : "Send for review"}</strong>
+              <small>One final confirmation</small>
+            </div>
+          </li>
+        </ol>
+
         <section className="receipt-header-card" aria-labelledby="supplier-bill-heading">
           <div className="section-title">
-            <h2 id="supplier-bill-heading">1. Supplier bill</h2>
+            <div>
+              <h2 id="supplier-bill-heading">Supplier bill</h2>
+              <p>One receipt should match one supplier delivery.</p>
+            </div>
             <button
               type="button"
               className="text-button"
@@ -816,7 +837,7 @@ export default function ReceiveWorkspace({
               {showNewSupplier ? "Cancel" : "Add supplier"}
             </button>
           </div>
-          <div className="form-row two-columns">
+          <div className="receive-bill-fields">
             <label>
               Supplier
               <select
@@ -834,7 +855,7 @@ export default function ReceiveWorkspace({
               </select>
             </label>
             <label>
-              Bill / invoice reference
+              Bill number
               <input
                 value={invoiceReference}
                 onChange={(event) => {
@@ -842,14 +863,19 @@ export default function ReceiveWorkspace({
                   resetDuplicateCheck();
                 }}
                 maxLength={120}
-                placeholder="Recommended"
+                placeholder="Recommended for duplicate checks"
+              />
+            </label>
+            <label>
+              Note or discrepancy
+              <input
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                maxLength={500}
+                placeholder="Optional"
               />
             </label>
           </div>
-          <label>
-            Note or discrepancy
-            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="Optional" />
-          </label>
           {showNewSupplier && (
             <form className="new-supplier-form" onSubmit={createNewSupplier}>
               <label>Supplier name<input value={newSupplierName} onChange={(event) => setNewSupplierName(event.target.value)} maxLength={120} required /></label>
@@ -861,8 +887,10 @@ export default function ReceiveWorkspace({
           )}
         </section>
 
+        <div className="receive-command-center">
+          <div className="receive-product-column">
         <form className="search-bar" onSubmit={findProducts}>
-          <label htmlFor="product-search">2. Scan or find a product to add</label>
+          <label htmlFor="product-search">Scan or find a delivered product</label>
           <div className="search-row">
             <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="SKU, barcode or product name" autoComplete="off" />
             <button type="submit" disabled={loading}>{loading ? "Finding…" : "Find"}</button>
@@ -870,7 +898,10 @@ export default function ReceiveWorkspace({
         </form>
 
         {role === "BUSINESS_OWNER" && (
-          <section className="new-product-panel" aria-labelledby="new-product-heading">
+          <section
+            className={`new-product-panel${showNewProduct ? " expanded" : ""}`}
+            aria-labelledby="new-product-heading"
+          >
             <div className="section-title">
               <div>
                 <p className="eyebrow">Owner control</p>
@@ -889,8 +920,7 @@ export default function ReceiveWorkspace({
             </div>
             {!showNewProduct ? (
               <p>
-                Create the SKU, internal barcode, prices and rack first. Stock remains
-                zero until this receipt is completed.
+                Only use this when the delivered product is genuinely new to the catalogue.
               </p>
             ) : (
               <form className="new-product-form" onSubmit={createNewProduct}>
@@ -1238,7 +1268,7 @@ export default function ReceiveWorkspace({
 
           <section className="checkout-panel" aria-labelledby="receipt-product-heading">
             {!selected ? (
-              <div className="empty-state"><span aria-hidden="true">↖</span><h2>Select a product</h2><p>Choose each product from this supplier bill.</p></div>
+              <div className="empty-state"><span aria-hidden="true">↖</span><h2>Select a delivered product</h2><p>Choose it from the list, then enter quantity and bill cost.</p></div>
             ) : (
               <form onSubmit={addReceiptLine}>
                 <div className="selected-product">
@@ -1259,9 +1289,9 @@ export default function ReceiveWorkspace({
                   <label>Open box<input type="number" min="0" max="5000" value={openBoxQuantity} onChange={(event) => setOpenBoxQuantity(Number(event.target.value))} required /></label>
                   <label>Damaged<input type="number" min="0" max="5000" value={damagedQuantity} onChange={(event) => setDamagedQuantity(Number(event.target.value))} required /></label>
                 </div>
-                <label className="unit-cost-field">Invoice unit cost (₹)<input type="number" min="0.01" max="1000000" step="0.01" value={unitCostRupees} onChange={(event) => setUnitCostRupees(event.target.value)} required /></label>
+                <label className="unit-cost-field">Cost per unit on this bill (₹)<input type="number" min="0.01" max="1000000" step="0.01" value={unitCostRupees} onChange={(event) => setUnitCostRupees(event.target.value)} required /></label>
                 <p className="condition-guidance">
-                  Open-box and damaged units never enter ordinary sellable stock.
+                  Use Open box or Damaged only when those units must stay out of normal sale stock.
                 </p>
                 <button
                   className="complete-button"
@@ -1272,8 +1302,8 @@ export default function ReceiveWorkspace({
                   }
                 >
                   {receiptLines.some((line) => line.product.id === selected.id)
-                    ? "Update receipt line"
-                    : "Add product to receipt"}
+                    ? "Update this product"
+                    : "Add to receipt"}
                 </button>
               </form>
             )}
@@ -1526,13 +1556,17 @@ export default function ReceiveWorkspace({
           </section>
         )}
 
+          </div>
         <section className="receipt-builder" aria-labelledby="receipt-builder-heading">
           <div className="section-title">
-            <h2 id="receipt-builder-heading">3. Check this receipt</h2>
+            <div>
+              <h2 id="receipt-builder-heading">Receipt summary</h2>
+              <p>Check before stock changes.</p>
+            </div>
             <span>{receiptLines.length} product lines · {receiptQuantity} units</span>
           </div>
           {receiptLines.length === 0 ? (
-            <div className="draft-empty">Add every product shown on this supplier bill.</div>
+            <div className="draft-empty">No products added yet.</div>
           ) : (
             <div className="receipt-line-list">
               {receiptLines.map((line) => (
@@ -1562,9 +1596,9 @@ export default function ReceiveWorkspace({
             <span><small>Sellable</small><strong>{receiptSellableQuantity}</strong></span>
             <span><small>Open box</small><strong>{receiptOpenBoxQuantity}</strong></span>
             <span><small>Damaged</small><strong>{receiptDamagedQuantity}</strong></span>
-            <span><small>Entered invoice value</small><strong>{formatMoney(receiptValuePaise)}</strong></span>
+            <span><small>Stock purchase value</small><strong>{formatMoney(receiptValuePaise)}</strong></span>
             <span className="stock-effect-total">
-              <small>Stock effect now</small>
+              <small>{role === "BUSINESS_OWNER" ? "Added to sellable stock" : "Stock effect now"}</small>
               <strong>
                 {role === "BUSINESS_OWNER"
                   ? `+${receiptSellableQuantity} sellable`
@@ -1600,25 +1634,20 @@ export default function ReceiveWorkspace({
             {submitting
               ? role === "BUSINESS_OWNER" ? "Completing safely…" : "Saving draft…"
               : role === "BUSINESS_OWNER"
-                ? `Complete receipt · ${receiptQuantity} units`
-                : "Save receipt draft for owner"}
+                ? `Add ${receiptQuantity} units to stock`
+                : "Send receipt for owner review"}
           </button>
         </section>
+        </div>
 
-        <section className="draft-receipts" aria-labelledby="draft-receipts-heading">
+        {drafts.length > 0 && (
+          <section className="draft-receipts" aria-labelledby="draft-receipts-heading">
           <div className="section-title">
             <h2 id="draft-receipts-heading">
               {role === "BUSINESS_OWNER" ? "Receipts awaiting review" : "Your drafts awaiting owner"}
             </h2>
             <span>{drafts.length} waiting</span>
           </div>
-          {drafts.length === 0 ? (
-            <div className="draft-empty">
-              {role === "BUSINESS_OWNER"
-                ? "Trusted-operator drafts will appear here."
-                : "Saved drafts remain here until an owner completes them."}
-            </div>
-          ) : (
             <div className="draft-receipt-list">
               {drafts.map((draft) => (
                 <article className="draft-receipt-card" key={draft.receiptId}>
@@ -1672,8 +1701,8 @@ export default function ReceiveWorkspace({
                 </article>
               ))}
             </div>
-          )}
-        </section>
+          </section>
+        )}
       </section>
     </AppShell>
   );
