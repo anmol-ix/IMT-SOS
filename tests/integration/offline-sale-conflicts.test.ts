@@ -74,10 +74,11 @@ describeWithDatabase("offline-sale owner conflict resolution", () => {
     const price = await migrationPool.query<{ id: string }>(
       `INSERT INTO price_versions (
          variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+         wholesale_price_paise,
          owner_floor_paise, trusted_operator_floor_paise,
          store_operator_floor_paise, effective_from, created_by
        )
-       VALUES ($1, 40000, 90000, 80000, 60000, 68000, 72000, now(), $2)
+       VALUES ($1, 40000, 90000, 80000, 80000, 60000, 68000, 72000, now(), $2)
        RETURNING id`,
       [variantId, owner.id],
     );
@@ -179,10 +180,11 @@ describeWithDatabase("offline-sale owner conflict resolution", () => {
     await migrationPool.query(
       `INSERT INTO price_versions (
          variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+         wholesale_price_paise,
          owner_floor_paise, trusted_operator_floor_paise,
          store_operator_floor_paise, effective_from, created_by
        )
-       VALUES ($1, 45000, 100000, 90000, 70000, 80000, 85000, now(), $2)`,
+       VALUES ($1, 45000, 100000, 90000, 90000, 70000, 80000, 85000, now(), $2)`,
       [variantId, owner.id],
     );
 

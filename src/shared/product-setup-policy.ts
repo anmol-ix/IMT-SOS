@@ -102,19 +102,28 @@ export function productPricingConflict(
   purchaseCostPaise: number,
   standardPricePaise: number,
   mrpPaise: number,
+  wholesalePricePaise = standardPricePaise,
 ): string | null {
   if (
     !Number.isInteger(purchaseCostPaise) ||
     !Number.isInteger(standardPricePaise) ||
     !Number.isInteger(mrpPaise) ||
+    !Number.isInteger(wholesalePricePaise) ||
     purchaseCostPaise < 1 ||
     standardPricePaise < 1 ||
-    mrpPaise < 1
+    mrpPaise < 1 ||
+    wholesalePricePaise < 1
   ) {
-    return "Purchase cost, standard selling price and MRP must be positive amounts.";
+    return "Purchase cost, Retail price, Wholesale price and MRP must be positive amounts.";
   }
   if (mrpPaise < standardPricePaise) {
-    return "MRP cannot be lower than the standard selling price.";
+    return "MRP cannot be lower than the Retail price.";
+  }
+  if (wholesalePricePaise > standardPricePaise) {
+    return "Wholesale price cannot be higher than the Retail price.";
+  }
+  if (wholesalePricePaise < purchaseCostPaise) {
+    return "Wholesale price cannot be lower than the latest purchase cost.";
   }
   return null;
 }

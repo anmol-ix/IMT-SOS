@@ -16,6 +16,7 @@ export const saleLineSchema = z.object({
 });
 
 export const saleRequestSchema = z.object({
+  saleType: z.enum(["RETAIL", "WHOLESALE"]).default("RETAIL"),
   lines: z.array(saleLineSchema).min(1).max(20).superRefine((lines, context) => {
     if (new Set(lines.map((line) => line.variantId)).size !== lines.length) {
       context.addIssue({ code: "custom", message: "Each product may appear only once." });
@@ -57,4 +58,4 @@ export const saleRequestSchema = z.object({
     .optional(),
 });
 
-export type SaleRequest = z.infer<typeof saleRequestSchema>;
+export type SaleRequest = z.input<typeof saleRequestSchema>;

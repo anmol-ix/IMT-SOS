@@ -22,6 +22,7 @@ type Product = {
   damagedStock?: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   minimumPricePaise: number;
   inventoryValuePaise?: number;
   weightedAverageCostPaise?: number;
@@ -54,6 +55,7 @@ type Inventory = {
     rackLocation: string | null;
     mrpPaise: number;
     standardPricePaise: number;
+    wholesalePricePaise: number;
     minimumPricePaise: number;
     reorderPolicyStatus?: ReorderPolicyStatus;
     reorderPoint?: number | null;
@@ -83,10 +85,12 @@ type Inventory = {
     saleNumber: string;
     customerName: string;
     salesChannel: string;
+    saleType: "RETAIL" | "WHOLESALE";
     quantity: number;
     unitPricePaise: number;
     mrpPaise: number;
     standardPricePaise: number;
+    wholesalePricePaise: number;
     accountingCogsPaise?: number;
     grossProductProfitPaise?: number;
     happenedAt: string;
@@ -722,6 +726,10 @@ export default function InventoryWorkspace({
                       <strong>{formatMoney(inventory.product.standardPricePaise)}</strong>
                     </div>
                     <div>
+                      <small>Wholesale price</small>
+                      <strong>{formatMoney(inventory.product.wholesalePricePaise)}</strong>
+                    </div>
+                    <div>
                       <small>Your lowest price</small>
                       <strong>{formatMoney(inventory.product.minimumPricePaise)}</strong>
                     </div>
@@ -1014,12 +1022,18 @@ export default function InventoryWorkspace({
                           <article key={sale.id}>
                             <div>
                               <strong>{sale.saleNumber}</strong>
-                              <small>{sale.customerName}</small>
+                              <small>
+                                {sale.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} · {sale.customerName}
+                              </small>
                             </div>
                             <div>
                               <strong>{sale.quantity} × {formatMoney(sale.unitPricePaise)}</strong>
                               <small>
-                                Standard {formatMoney(sale.standardPricePaise)}
+                                List {formatMoney(
+                                  sale.saleType === "WHOLESALE"
+                                    ? sale.wholesalePricePaise
+                                    : sale.standardPricePaise
+                                )}
                               </small>
                             </div>
                             {sale.grossProductProfitPaise !== undefined && (

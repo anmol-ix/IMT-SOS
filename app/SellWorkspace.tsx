@@ -48,6 +48,7 @@ type Product = {
   stock: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise?: number;
   minimumPricePaise: number;
   inventoryValuePaise?: number;
   latestLandedCostPaise?: number;
@@ -90,6 +91,7 @@ type SaleReceipt = {
   saleNumber: string;
   completedAt: string;
   customerName: string | null;
+  saleType: "RETAIL" | "WHOLESALE";
   payments: Array<{
     paymentMode: "CASH" | "UPI" | "CARD" | "BANK_TRANSFER";
     amountPaise: number;
@@ -114,6 +116,8 @@ type CartLine = {
   exceptionReason: string;
   exceptionNote: string;
 };
+
+type SaleType = "RETAIL" | "WHOLESALE";
 
 const exceptionReasons = [
   ["CLEARANCE", "Clearance"],
@@ -146,6 +150,12 @@ function formatMoney(paise: number) {
   return money.format(paise / 100);
 }
 
+function listedPrice(product: Product, saleType: SaleType) {
+  return saleType === "WHOLESALE"
+    ? product.wholesalePricePaise ?? product.standardPricePaise
+    : product.standardPricePaise;
+}
+
 function savedAge(iso: string) {
   const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60_000));
   if (minutes < 1) return "saved just now";
@@ -163,7 +173,7 @@ function paymentLabel(mode: SaleReceipt["payments"][number]["paymentMode"]) {
 
 function shareText(receipt: SaleReceipt) {
   return [
-    "ItsMyToy sale receipt",
+    `ItsMyToy ${receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale receipt`,
     receipt.saleNumber,
     receiptDate.format(new Date(receipt.completedAt)),
     "",
@@ -239,6 +249,7 @@ export default function SellWorkspace({
 }: Props) {
   const online = useOnlineStatus();
   const [query, setQuery] = useState("");
+  const [saleType, setSaleType] = useState<SaleType>("RETAIL");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [selected, setSelected] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -531,16 +542,33 @@ export default function SellWorkspace({
   function changeQuantity(nextQuantity: number, product: Product) {
     setQuantity(nextQuantity);
     if (approval || exceptionMode) {
-      setUnitPrice(product.standardPricePaise);
+      setUnitPrice(listedPrice(product, saleType));
       clearPriceException();
     }
+  }
+
+  function chooseSaleType(nextSaleType: SaleType) {
+    if (nextSaleType === saleType) return;
+    if (cart.length && !window.confirm("Switching the sale type will clear the current cart. Continue?")) {
+      return;
+    }
+    setSaleType(nextSaleType);
+    setCart([]);
+    setSelected(null);
+    setSelectedCustomer(null);
+    setCustomerResults([]);
+    resetGuestDecision();
+    clearPriceException();
+    setCommandId(crypto.randomUUID());
+    setMessage("");
+    setError("");
   }
 
   function chooseProduct(product: Product) {
     const existing = cart.find((line) => line.product.id === product.id);
     setShowScanner(false);
     setSelected(product);
-    setUnitPrice(existing?.unitPricePaise ?? product.standardPricePaise);
+    setUnitPrice(existing?.unitPricePaise ?? listedPrice(product, saleType));
     setQuantity(existing?.quantity ?? 1);
     setApproval(existing?.approval ?? null);
     setExceptionMode(existing?.exceptionMode ?? false);
@@ -626,6 +654,10 @@ export default function SellWorkspace({
   function saveCartLine(event: FormEvent) {
     event.preventDefault();
     if (!selected) return;
+    if (!navigator.onLine && saleType === "WHOLESALE") {
+      setError("Reconnect before preparing a Wholesale sale.");
+      return;
+    }
     const cachedProduct = offlineCatalog?.products.find(
       (product) => product.id === selected.id,
     );
@@ -714,6 +746,10 @@ export default function SellWorkspace({
     event.preventDefault();
     if (cart.length === 0) return;
     if (!navigator.onLine) {
+      if (saleType === "WHOLESALE") {
+        setError("Wholesale sales must be completed while connected.");
+        return;
+      }
       if (cart.some((line) => line.approval || line.exceptionMode)) {
         setError("Approved or exceptional prices cannot be queued offline.");
         return;
@@ -768,6 +804,7 @@ export default function SellWorkspace({
           "idempotency-key": commandId,
         },
         body: JSON.stringify({
+          saleType,
           lines: cart.map((line) => ({
             variantId: line.product.id,
             quantity: line.quantity,
@@ -1040,8 +1077,9 @@ export default function SellWorkspace({
 
   const selectedTotal = selected ? unitPrice * quantity : 0;
   const customerSaving = selected ? (selected.mrpPaise - unitPrice) * quantity : 0;
+  const selectedListedPrice = selected ? listedPrice(selected, saleType) : 0;
   const maxExtraDiscount = selected
-    ? selected.standardPricePaise - selected.minimumPricePaise
+    ? selectedListedPrice - selected.minimumPricePaise
     : 0;
   const expectedAccountingCogs = selected?.inventoryValuePaise === undefined || selected.stock < 1
     ? undefined
@@ -1065,13 +1103,16 @@ export default function SellWorkspace({
     && firstPaymentPaise > 0
     && secondPaymentPaise > 0
     && paymentMode !== secondPaymentMode;
-  const requiresCustomer = cartTotal >= 500_000;
-  const guestCompletionReady = !requiresCustomer
-    || Boolean(selectedCustomer)
-    || (role === "BUSINESS_OWNER"
-      ? ownerGuestOverride
-      : guestApproval?.status === "APPROVED");
+  const requiresCustomer = saleType === "WHOLESALE" || cartTotal >= 500_000;
+  const guestCompletionReady = saleType === "WHOLESALE"
+    ? Boolean(selectedCustomer)
+    : !requiresCustomer
+      || Boolean(selectedCustomer)
+      || (role === "BUSINESS_OWNER"
+        ? ownerGuestOverride
+        : guestApproval?.status === "APPROVED");
   const offlineSellingReady = !online
+    && saleType === "RETAIL"
     && Boolean(offlineCatalog)
     && offlineDeviceState(offlineDevice) === "ACTIVE";
   const selectedQueuedQuantity = selected
@@ -1097,13 +1138,41 @@ export default function SellWorkspace({
     <AppShell displayName={displayName} role={role}>
       <section className="sell-page" aria-labelledby="sell-heading">
         <PageHeader
-          eyebrow={receipt ? "Sale complete" : "New retail sale"}
+          eyebrow={receipt
+            ? `${receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale complete`
+            : `${saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale`}
           headingId="sell-heading"
           title={receipt ? "Receipt ready" : "Create sale"}
           description={receipt
             ? "The sale, payments and stock deduction were saved together."
-            : "Scan a product, apply the permitted price and complete the sale."}
+            : saleType === "WHOLESALE"
+              ? "Select the shopkeeper, add products at their Wholesale prices and collect payment."
+              : "Scan a product, apply the permitted Retail price and collect payment."}
         />
+
+        {!receipt && (
+          <div className="sale-type-switch" aria-label="Choose Retail or Wholesale sale">
+            <button
+              type="button"
+              className={saleType === "RETAIL" ? "active" : ""}
+              onClick={() => chooseSaleType("RETAIL")}
+              aria-pressed={saleType === "RETAIL"}
+            >
+              <strong>Retail</strong>
+              <span>Walk-in or household customer</span>
+            </button>
+            <button
+              type="button"
+              className={saleType === "WHOLESALE" ? "active" : ""}
+              onClick={() => chooseSaleType("WHOLESALE")}
+              aria-pressed={saleType === "WHOLESALE"}
+              disabled={!online}
+            >
+              <strong>Wholesale</strong>
+              <span>Shopkeeper or business customer</span>
+            </button>
+          </div>
+        )}
 
         {!receipt && <form className="search-bar" onSubmit={search}>
           <label htmlFor="product-search">Scan or enter SKU, barcode or product name</label>
@@ -1257,6 +1326,9 @@ export default function SellWorkspace({
               </div>
               <span className="success-mark" aria-hidden="true">✓</span>
             </div>
+            <p className="receipt-sale-type">
+              {receipt.saleType === "WHOLESALE" ? "Wholesale sale" : "Retail sale"}
+            </p>
 
             {receipt.customerName && (
               <p className="receipt-customer">Customer: <strong>{receipt.customerName}</strong></p>
@@ -1329,6 +1401,10 @@ export default function SellWorkspace({
                       <small>{product.variantName} · {product.sku}</small>
                       <small>{product.rackLocation ?? "Rack not set"}</small>
                     </span>
+                    <span className="product-price">
+                      {formatMoney(listedPrice(product, saleType))}
+                      <small>{saleType === "WHOLESALE" ? "Wholesale" : "Retail"}</small>
+                    </span>
                     <span className={`stock-pill${product.stock === 0 ? " empty" : ""}`}>
                       {inCart
                         ? `${inCart.quantity} in cart`
@@ -1376,7 +1452,11 @@ export default function SellWorkspace({
 
                 <div className="price-summary">
                   <div><span>MRP</span><strong>{formatMoney(selected.mrpPaise)}</strong></div>
-                  <div><span>Standard</span><strong>{formatMoney(selected.standardPricePaise)}</strong></div>
+                  <div><span>Retail price</span><strong>{formatMoney(selected.standardPricePaise)}</strong></div>
+                  <div className={saleType === "WHOLESALE" ? "permitted" : ""}>
+                    <span>Wholesale price</span>
+                    <strong>{formatMoney(selected.wholesalePricePaise ?? selected.standardPricePaise)}</strong>
+                  </div>
                   <div className="permitted"><span>Your lowest permitted price</span><strong>{formatMoney(selected.minimumPricePaise)}</strong></div>
                   {selected.weightedAverageCostPaise !== undefined && (
                     <div><span>Weighted-average cost</span><strong>{formatMoney(selected.weightedAverageCostPaise)}</strong></div>
@@ -1389,8 +1469,10 @@ export default function SellWorkspace({
                 <fieldset>
                   <legend>Final unit price</legend>
                   <div className="preset-row">
-                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selected.standardPricePaise)}>Standard</button>
-                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selected.standardPricePaise * 0.95)))}>5% off</button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selectedListedPrice)}>
+                      {saleType === "WHOLESALE" ? "Wholesale" : "Retail"}
+                    </button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selectedListedPrice * 0.95)))}>5% off</button>
                     <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selected.minimumPricePaise)}>Maximum</button>
                   </div>
                   {!exceptionMode && (
@@ -1398,7 +1480,7 @@ export default function SellWorkspace({
                       className="price-slider"
                       type="range"
                       min={selected.minimumPricePaise}
-                      max={selected.standardPricePaise}
+                      max={selectedListedPrice}
                       step="500"
                       value={unitPrice}
                       onChange={(event) => setUnitPrice(Number(event.target.value))}
@@ -1431,7 +1513,7 @@ export default function SellWorkspace({
                               setLowerPriceRupees(event.target.value);
                               setApproval(null);
                               setExceptionMode(false);
-                              setUnitPrice(selected.standardPricePaise);
+                              setUnitPrice(selectedListedPrice);
                             }}
                             inputMode="decimal"
                           />
@@ -1460,7 +1542,7 @@ export default function SellWorkspace({
                           )}
                         </div>
                       )}
-                      <button type="button" className="text-button muted" onClick={() => selectRegularPrice(selected.standardPricePaise)}>Cancel lower price</button>
+                      <button type="button" className="text-button muted" onClick={() => selectRegularPrice(selectedListedPrice)}>Cancel lower price</button>
                     </>
                   )}
                 </section>
@@ -1535,7 +1617,7 @@ export default function SellWorkspace({
                   <form className="cart-checkout" onSubmit={submitSale}>
                     {!online && (
                       <p className="offline-read-only">
-                        Guest sale only. Cash or UPI. No customer details. The saved
+                        Retail Guest sale only. Cash or UPI. No customer details. The saved
                         permitted price and one-unit stock reserve are enforced.
                       </p>
                     )}
@@ -1620,7 +1702,13 @@ export default function SellWorkspace({
                     <section className="customer-section" aria-labelledby="customer-heading">
                       <div className="section-title">
                         <h3 id="customer-heading">Customer</h3>
-                        <span>{requiresCustomer ? "Ask for details" : "Optional"}</span>
+                        <span>
+                          {saleType === "WHOLESALE"
+                            ? "Required for Wholesale"
+                            : requiresCustomer
+                              ? "Ask for details"
+                              : "Optional"}
+                        </span>
                       </div>
                       {selectedCustomer ? (
                         <div className="selected-customer">
@@ -1723,7 +1811,7 @@ export default function SellWorkspace({
                       )}
                     </section>
 
-                    {requiresCustomer && !selectedCustomer && (
+                    {saleType === "RETAIL" && requiresCustomer && !selectedCustomer && (
                       <section className="guest-policy" aria-label="High-value Guest sale control">
                         <strong>Customer information is requested for sales of ₹5,000 or more.</strong>
                         <p>If the customer declines, record an owner-approved Guest sale. Never invent details.</p>

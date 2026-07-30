@@ -30,6 +30,7 @@ type Product = {
   damagedStock?: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   minimumPricePaise: number;
   ownerFloorPaise?: number;
   trustedOperatorFloorPaise?: number;
@@ -97,6 +98,7 @@ type NewProductForm = {
   rackLocation: string;
   purchaseCostRupees: string;
   standardPriceRupees: string;
+  wholesalePriceRupees: string;
   mrpRupees: string;
   ownerFloorRupees: string;
   trustedFloorRupees: string;
@@ -107,6 +109,7 @@ type ProductChangeForm = {
   rackLocation: string;
   mrpRupees: string;
   standardPriceRupees: string;
+  wholesalePriceRupees: string;
   ownerFloorRupees: string;
   trustedFloorRupees: string;
   storeFloorRupees: string;
@@ -148,6 +151,7 @@ function emptyNewProduct(): NewProductForm {
     rackLocation: "",
     purchaseCostRupees: "",
     standardPriceRupees: "",
+    wholesalePriceRupees: "",
     mrpRupees: "",
     ownerFloorRupees: "",
     trustedFloorRupees: "",
@@ -300,6 +304,7 @@ export default function ReceiveWorkspace({
       rackLocation: product.rackLocation,
       mrpRupees: (product.mrpPaise / 100).toFixed(2),
       standardPriceRupees: (product.standardPricePaise / 100).toFixed(2),
+      wholesalePriceRupees: (product.wholesalePricePaise / 100).toFixed(2),
       ownerFloorRupees: (product.ownerFloorPaise / 100).toFixed(2),
       trustedFloorRupees: (
         product.trustedOperatorFloorPaise / 100
@@ -329,6 +334,7 @@ export default function ReceiveWorkspace({
       rackLocation: productChange.rackLocation,
       mrpPaise: rupeesToPaise(productChange.mrpRupees),
       standardPricePaise: rupeesToPaise(productChange.standardPriceRupees),
+      wholesalePricePaise: rupeesToPaise(productChange.wholesalePriceRupees),
       ownerFloorPaise: rupeesToPaise(productChange.ownerFloorRupees),
       trustedOperatorFloorPaise: rupeesToPaise(
         productChange.trustedFloorRupees,
@@ -341,10 +347,11 @@ export default function ReceiveWorkspace({
       managedProduct.latestLandedCostPaise ?? 0,
       payload.standardPricePaise,
       payload.mrpPaise,
+      payload.wholesalePricePaise,
     );
     const floorConflict = priceFloorConflict(
       managedProduct.latestLandedCostPaise ?? 0,
-      payload.standardPricePaise,
+      payload.wholesalePricePaise,
       {
         ownerFloorPaise: payload.ownerFloorPaise,
         trustedOperatorFloorPaise: payload.trustedOperatorFloorPaise,
@@ -403,11 +410,13 @@ export default function ReceiveWorkspace({
     event.preventDefault();
     const purchaseCostPaise = rupeesToPaise(newProduct.purchaseCostRupees);
     const standardPricePaise = rupeesToPaise(newProduct.standardPriceRupees);
+    const wholesalePricePaise = rupeesToPaise(newProduct.wholesalePriceRupees);
     const mrpPaise = rupeesToPaise(newProduct.mrpRupees);
     const pricingConflict = productPricingConflict(
       purchaseCostPaise,
       standardPricePaise,
       mrpPaise,
+      wholesalePricePaise,
     );
     if (pricingConflict) {
       setError(pricingConflict);
@@ -415,7 +424,7 @@ export default function ReceiveWorkspace({
     }
     const recommendedFloors = recommendedPriceFloors(
       purchaseCostPaise,
-      standardPricePaise,
+      wholesalePricePaise,
     );
     const selectedFloors = {
       ownerFloorPaise: newProduct.ownerFloorRupees
@@ -430,7 +439,7 @@ export default function ReceiveWorkspace({
     };
     const floorConflict = priceFloorConflict(
       purchaseCostPaise,
-      standardPricePaise,
+      wholesalePricePaise,
       selectedFloors,
     );
     if (floorConflict) {
@@ -462,6 +471,7 @@ export default function ReceiveWorkspace({
           rackLocation: newProduct.rackLocation,
           purchaseCostPaise,
           standardPricePaise,
+          wholesalePricePaise,
           mrpPaise,
           ...(newProduct.ownerFloorRupees
             ? { ownerFloorPaise: selectedFloors.ownerFloorPaise }
@@ -678,20 +688,23 @@ export default function ReceiveWorkspace({
   const invoiceUnitCostPaise = Math.round(Number(unitCostRupees || 0) * 100);
   const newPurchaseCostPaise = rupeesToPaise(newProduct.purchaseCostRupees);
   const newStandardPricePaise = rupeesToPaise(newProduct.standardPriceRupees);
+  const newWholesalePricePaise = rupeesToPaise(newProduct.wholesalePriceRupees);
   const newMrpPaise = rupeesToPaise(newProduct.mrpRupees);
   const newProductPricingConflict =
     newPurchaseCostPaise > 0 &&
     newStandardPricePaise > 0 &&
+    newWholesalePricePaise > 0 &&
     newMrpPaise > 0
       ? productPricingConflict(
           newPurchaseCostPaise,
           newStandardPricePaise,
           newMrpPaise,
+          newWholesalePricePaise,
         )
       : null;
   const newProductFloors =
-    newPurchaseCostPaise > 0 && newStandardPricePaise > 0
-      ? recommendedPriceFloors(newPurchaseCostPaise, newStandardPricePaise)
+    newPurchaseCostPaise > 0 && newWholesalePricePaise > 0
+      ? recommendedPriceFloors(newPurchaseCostPaise, newWholesalePricePaise)
       : null;
   const selectedNewProductFloors = newProductFloors
     ? {
@@ -710,7 +723,7 @@ export default function ReceiveWorkspace({
     selectedNewProductFloors && newProductPricingConflict === null
       ? priceFloorConflict(
           newPurchaseCostPaise,
-          newStandardPricePaise,
+          newWholesalePricePaise,
           selectedNewProductFloors,
         )
       : null;
@@ -729,6 +742,9 @@ export default function ReceiveWorkspace({
   const changedStandardPricePaise = productChange
     ? rupeesToPaise(productChange.standardPriceRupees)
     : 0;
+  const changedWholesalePricePaise = productChange
+    ? rupeesToPaise(productChange.wholesalePriceRupees)
+    : 0;
   const changedFloors = productChange
     ? {
         ownerFloorPaise: rupeesToPaise(productChange.ownerFloorRupees),
@@ -744,13 +760,14 @@ export default function ReceiveWorkspace({
           managedProduct.latestLandedCostPaise ?? 0,
           changedStandardPricePaise,
           changedMrpPaise,
+          changedWholesalePricePaise,
         )
       : null;
   const existingProductFloorConflict =
     managedProduct && changedFloors && !existingProductPricingConflict
       ? priceFloorConflict(
           managedProduct.latestLandedCostPaise ?? 0,
-          changedStandardPricePaise,
+          changedWholesalePricePaise,
           changedFloors,
         )
       : null;
@@ -763,6 +780,7 @@ export default function ReceiveWorkspace({
       managedProduct!.rackLocation !== productChange!.rackLocation ||
       managedProduct!.mrpPaise !== changedMrpPaise ||
       managedProduct!.standardPricePaise !== changedStandardPricePaise ||
+      managedProduct!.wholesalePricePaise !== changedWholesalePricePaise ||
       managedProduct!.ownerFloorPaise !== changedFloors!.ownerFloorPaise ||
       managedProduct!.trustedOperatorFloorPaise !==
         changedFloors!.trustedOperatorFloorPaise ||
@@ -1060,7 +1078,7 @@ export default function ReceiveWorkspace({
                     />
                   </label>
                   <label>
-                    Standard selling price (₹)
+                    Retail price (₹)
                     <input
                       type="number"
                       min="0.01"
@@ -1069,6 +1087,19 @@ export default function ReceiveWorkspace({
                       value={newProduct.standardPriceRupees}
                       onChange={(event) =>
                         changeNewProduct("standardPriceRupees", event.target.value)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Wholesale price (₹)
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="1000000"
+                      step="0.01"
+                      value={newProduct.wholesalePriceRupees}
+                      onChange={(event) =>
+                        changeNewProduct("wholesalePriceRupees", event.target.value)}
                       required
                     />
                   </label>
@@ -1313,7 +1344,7 @@ export default function ReceiveWorkspace({
               </label>
               <div className="new-product-price-grid">
                 <label>
-                  Standard selling price (₹)
+                  Retail price (₹)
                   <input
                     type="number"
                     min="0.01"
@@ -1323,6 +1354,22 @@ export default function ReceiveWorkspace({
                     onChange={(event) =>
                       changeExistingProduct(
                         "standardPriceRupees",
+                        event.target.value,
+                      )}
+                    required
+                  />
+                </label>
+                <label>
+                  Wholesale price (₹)
+                  <input
+                    type="number"
+                    min="0.01"
+                    max="1000000"
+                    step="0.01"
+                    value={productChange.wholesalePriceRupees}
+                    onChange={(event) =>
+                      changeExistingProduct(
+                        "wholesalePriceRupees",
                         event.target.value,
                       )}
                     required
@@ -1347,7 +1394,7 @@ export default function ReceiveWorkspace({
                   onClick={() => {
                     const floors = recommendedPriceFloors(
                       managedProduct.latestLandedCostPaise ?? 0,
-                      changedStandardPricePaise,
+                      changedWholesalePricePaise,
                     );
                     setProductChange((current) => current ? {
                       ...current,

@@ -48,6 +48,14 @@ describe("new product setup policy", () => {
     )).toMatch(/cannot exceed/);
   });
 
+  it("keeps the Wholesale price between cost and the Retail price", () => {
+    expect(productPricingConflict(40_000, 80_000, 100_000, 65_000)).toBeNull();
+    expect(productPricingConflict(40_000, 80_000, 100_000, 80_001))
+      .toMatch(/higher than the Retail/);
+    expect(productPricingConflict(40_000, 80_000, 100_000, 39_999))
+      .toMatch(/purchase cost/);
+  });
+
   it("allows owner overrides only when the role floors remain safely ordered", () => {
     expect(priceFloorConflict(40_000, 80_000, {
       ownerFloorPaise: 60_000,

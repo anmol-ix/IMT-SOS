@@ -37,6 +37,7 @@ export type CompleteSaleLineInput = {
 };
 
 export type CompleteSaleInput = {
+  saleType?: "RETAIL" | "WHOLESALE";
   lines: CompleteSaleLineInput[];
   customerId?: string;
   guestApprovalId?: string;
@@ -77,6 +78,7 @@ export type CompleteSaleResult = {
   saleNumber: string;
   completedAt: string;
   customerName: string | null;
+  saleType: "RETAIL" | "WHOLESALE";
   payments: SalePayment[];
   totalPaise: number;
   lines: CompleteSaleLineResult[];
@@ -105,6 +107,7 @@ type ProductRow = {
   latest_landed_cost_paise: string;
   mrp_paise: string;
   standard_price_paise: string;
+  wholesale_price_paise: string;
   owner_floor_paise: string;
   trusted_operator_floor_paise: string;
   store_operator_floor_paise: string;
@@ -164,12 +167,31 @@ export class CustomerUnavailableError extends Error {
   }
 }
 
+export class WholesaleCustomerRequiredError extends Error {
+  readonly status = 400;
+  readonly code = "WHOLESALE_CUSTOMER_REQUIRED";
+
+  constructor() {
+    super("Select the shopkeeper or business customer before completing a Wholesale sale.");
+    this.name = "WholesaleCustomerRequiredError";
+  }
+}
+
 export async function completeSale(
   user: CurrentUser,
   commandId: string,
   input: CompleteSaleInput,
   options: CompleteSaleOptions = {},
 ): Promise<CompleteSaleResult> {
+  const saleType = input.saleType ?? "RETAIL";
+  if (input.offline && saleType !== "RETAIL") {
+    const error = new Error(
+      "Wholesale sales must be completed while connected.",
+    ) as Error & { status: number; code: string };
+    error.status = 400;
+    error.code = "WHOLESALE_ONLINE_REQUIRED";
+    throw error;
+  }
   const ownerResolution = options.ownerResolution;
   if (
     ownerResolution
@@ -266,6 +288,7 @@ export async function completeSale(
            v.id AS variant_id, p.name AS product_name, v.sku, l.id AS location_id,
            ib.quantity_on_hand, ib.inventory_value_paise, ib.latest_landed_cost_paise,
            pv.id AS price_version_id, pv.mrp_paise, pv.standard_price_paise,
+           pv.wholesale_price_paise,
            pv.owner_floor_paise, pv.trusted_operator_floor_paise,
            pv.store_operator_floor_paise
          FROM product_variants v
@@ -285,8 +308,11 @@ export async function completeSale(
       if (row.quantity_on_hand < line.quantity) throw new InsufficientStockError();
 
       const latestLandedCostPaise = Number(row.latest_landed_cost_paise);
+      const listedPricePaise = saleType === "WHOLESALE"
+        ? Number(row.wholesale_price_paise)
+        : Number(row.standard_price_paise);
       const price = {
-        standardPricePaise: Number(row.standard_price_paise),
+        standardPricePaise: listedPricePaise,
         ownerFloorPaise: Math.max(Number(row.owner_floor_paise), latestLandedCostPaise),
         trustedOperatorFloorPaise: Math.max(
           Number(row.trusted_operator_floor_paise),
@@ -412,6 +438,9 @@ export async function completeSale(
       customer = customerResult.rows[0] ?? null;
       if (!customer) throw new CustomerUnavailableError();
     }
+    if (saleType === "WHOLESALE" && !customer) {
+      throw new WholesaleCustomerRequiredError();
+    }
 
     let guestApproval: { id: string; reason: "CUSTOMER_DECLINED" } | null = null;
     let guestOverrideReason: "CUSTOMER_DECLINED" | null = null;
@@ -439,6 +468,7 @@ export async function completeSale(
       saleNumber,
       completedAt,
       customerName: customer?.name ?? null,
+      saleType,
       payments: input.payments,
       totalPaise,
       lines,
@@ -450,10 +480,10 @@ export async function completeSale(
       `INSERT INTO sales
          (id, sale_number, business_id, location_id, status, total_paise, created_by,
           completed_at, command_id, request_hash, customer_id, customer_name, customer_phone,
-          guest_approval_id, guest_override_reason, sales_channel, result_json,
+          guest_approval_id, guest_override_reason, sales_channel, sale_type, result_json,
           offline_device_id, offline_created_at, offline_catalog_as_of)
        VALUES ($1, $2, $3, $4, 'COMPLETED', $5, $6, $7, $8, $9, $10, $11, $12,
-               $13, $14, 'SHOP', $15, $16, $17, $18)
+               $13, $14, 'SHOP', $15, $16, $17, $18, $19)
        ON CONFLICT (command_id) WHERE command_id IS NOT NULL DO NOTHING
        RETURNING id`,
       [
@@ -471,6 +501,7 @@ export async function completeSale(
         customer?.phone_normalized ?? null,
         guestApproval?.id ?? null,
         guestOverrideReason,
+        saleType,
         result,
         input.offline?.deviceId ?? null,
         input.offline?.createdAt ?? null,
@@ -493,8 +524,8 @@ export async function completeSale(
         `INSERT INTO sale_lines
            (sale_id, variant_id, price_version_id, quantity, unit_price_paise,
             replacement_unit_cost_paise, accounting_cogs_paise,
-            mrp_paise, standard_price_paise, price_approval_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            mrp_paise, standard_price_paise, wholesale_price_paise, price_approval_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           saleId,
           line.row.variant_id,
@@ -505,6 +536,7 @@ export async function completeSale(
           line.accountingCogsPaise,
           line.row.mrp_paise,
           line.row.standard_price_paise,
+          line.row.wholesale_price_paise,
           line.exception?.approvalId ?? null,
         ],
       );
@@ -561,6 +593,7 @@ export async function completeSale(
         saleId,
         {
           totalPaise,
+          saleType,
           payments: input.payments,
           customerId: customer?.id ?? null,
           guestApprovalId: guestApproval?.id ?? null,

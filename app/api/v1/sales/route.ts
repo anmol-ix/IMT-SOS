@@ -10,6 +10,7 @@ export async function POST(request: Request) {
     const commandId = z.string().uuid().parse(request.headers.get("idempotency-key"));
     const body = saleRequestSchema.parse(await request.json());
     const result = await completeSale(user, commandId, {
+      saleType: body.saleType,
       lines: body.lines,
       customerId: body.customerId,
       guestApprovalId: body.guestApprovalId,
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
         saleNumber: result.saleNumber,
         completedAt: result.completedAt,
         customerName: result.customerName,
+        saleType: result.saleType,
         payments: result.payments,
         totalPaise: result.totalPaise,
         lines: result.lines.map((line) => ({

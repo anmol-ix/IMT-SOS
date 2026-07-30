@@ -22,6 +22,7 @@ export type SellableProduct = {
   damagedStock?: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   minimumPricePaise: number;
   ownerFloorPaise?: number;
   trustedOperatorFloorPaise?: number;
@@ -40,6 +41,7 @@ export const SELLABLE_PRODUCTS_SQL = `
     b.barcodes,
     v.rack_location, v.reorder_point, v.restock_target,
     ib.quantity_on_hand, pv.mrp_paise, pv.standard_price_paise,
+    pv.wholesale_price_paise,
     GREATEST(
       CASE $2
         WHEN 'BUSINESS_OWNER' THEN pv.owner_floor_paise
@@ -118,6 +120,7 @@ async function loadSellableProducts(
     quantity_on_hand: number;
     mrp_paise: string;
     standard_price_paise: string;
+    wholesale_price_paise: string;
     minimum_price_paise: string;
     owner_floor_paise: string | null;
     trusted_operator_floor_paise: string | null;
@@ -152,6 +155,7 @@ async function loadSellableProducts(
         }),
     mrpPaise: Number(row.mrp_paise),
     standardPricePaise: Number(row.standard_price_paise),
+    wholesalePricePaise: Number(row.wholesale_price_paise),
     minimumPricePaise: Number(row.minimum_price_paise),
     ...(row.owner_floor_paise === null
       ? {}

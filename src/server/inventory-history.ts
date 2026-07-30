@@ -34,10 +34,12 @@ export type InventorySaleView = {
   saleNumber: string;
   customerName: string;
   salesChannel: string;
+  saleType: "RETAIL" | "WHOLESALE";
   quantity: number;
   unitPricePaise: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   accountingCogsPaise?: number;
   grossProductProfitPaise?: number;
   happenedAt: string;
@@ -54,6 +56,7 @@ export type InventoryHistoryView = {
     rackLocation: string | null;
     mrpPaise: number;
     standardPricePaise: number;
+    wholesalePricePaise: number;
     minimumPricePaise: number;
     reorderPolicyStatus?: "UNCONFIGURED" | "CONFIGURED" | "DISABLED";
     reorderPoint?: number | null;
@@ -96,6 +99,7 @@ export async function getInventoryHistory(
     rack_location: string | null;
     mrp_paise: string;
     standard_price_paise: string;
+    wholesale_price_paise: string;
     minimum_price_paise: string;
     quantity_on_hand: number;
     inventory_value_paise: string;
@@ -109,7 +113,7 @@ export async function getInventoryHistory(
     `SELECT
        v.id, p.name, p.category, v.variant_name, v.sku,
        barcode.barcode_value AS barcode, v.rack_location,
-       pv.mrp_paise, pv.standard_price_paise,
+       pv.mrp_paise, pv.standard_price_paise, pv.wholesale_price_paise,
        GREATEST(
          CASE $3
            WHEN 'BUSINESS_OWNER' THEN pv.owner_floor_paise
@@ -245,18 +249,20 @@ export async function getInventoryHistory(
       sale_number: string;
       customer_name: string | null;
       sales_channel: string;
+      sale_type: "RETAIL" | "WHOLESALE";
       quantity: number;
       unit_price_paise: string;
       mrp_paise: string;
       standard_price_paise: string;
+      wholesale_price_paise: string;
       accounting_cogs_paise: string;
       completed_at: Date;
     }>(
       `SELECT
          sl.id, s.sale_number, COALESCE(c.name, s.customer_name, 'Walk-in customer')
            AS customer_name,
-         s.sales_channel, sl.quantity, sl.unit_price_paise,
-         sl.mrp_paise, sl.standard_price_paise,
+         s.sales_channel, s.sale_type, sl.quantity, sl.unit_price_paise,
+         sl.mrp_paise, sl.standard_price_paise, sl.wholesale_price_paise,
          sl.accounting_cogs_paise, s.completed_at
        FROM sale_lines sl
        JOIN sales s ON s.id = sl.sale_id
@@ -296,6 +302,7 @@ export async function getInventoryHistory(
       rackLocation: current.rack_location,
       mrpPaise: Number(current.mrp_paise),
       standardPricePaise: Number(current.standard_price_paise),
+      wholesalePricePaise: Number(current.wholesale_price_paise),
       minimumPricePaise: Number(current.minimum_price_paise),
       ...(user.role === "BUSINESS_OWNER"
         ? {
@@ -358,10 +365,12 @@ export async function getInventoryHistory(
         saleNumber: row.sale_number,
         customerName: row.customer_name ?? "Walk-in customer",
         salesChannel: row.sales_channel,
+        saleType: row.sale_type,
         quantity: row.quantity,
         unitPricePaise: Number(row.unit_price_paise),
         mrpPaise: Number(row.mrp_paise),
         standardPricePaise: Number(row.standard_price_paise),
+        wholesalePricePaise: Number(row.wholesale_price_paise),
         ...(user.role === "BUSINESS_OWNER"
           ? {
               accountingCogsPaise: accountingCogs,

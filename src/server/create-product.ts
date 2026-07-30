@@ -32,6 +32,7 @@ export type CreateProductInput = {
   rackLocation: string;
   purchaseCostPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise?: number;
   mrpPaise: number;
   ownerFloorPaise?: number;
   trustedOperatorFloorPaise?: number;
@@ -50,6 +51,7 @@ export type CreatedProduct = {
   damagedStock: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   minimumPricePaise: number;
   ownerFloorPaise: number;
   trustedOperatorFloorPaise: number;
@@ -68,6 +70,7 @@ type ProductResultRow = {
   rack_location: string;
   mrp_paise: string;
   standard_price_paise: string;
+  wholesale_price_paise: string;
   owner_floor_paise: string;
   trusted_operator_floor_paise: string;
   store_operator_floor_paise: string;
@@ -115,6 +118,9 @@ function normalizedInput(input: CreateProductInput): CreateProductInput {
     rackLocation: input.rackLocation.trim().toUpperCase(),
     purchaseCostPaise: input.purchaseCostPaise,
     standardPricePaise: input.standardPricePaise,
+    ...(input.wholesalePricePaise === undefined
+      ? {}
+      : { wholesalePricePaise: input.wholesalePricePaise }),
     mrpPaise: input.mrpPaise,
     ...(input.ownerFloorPaise === undefined
       ? {}
@@ -159,11 +165,12 @@ function validateInput(input: CreateProductInput) {
     input.purchaseCostPaise,
     input.standardPricePaise,
     input.mrpPaise,
+    input.wholesalePricePaise ?? input.standardPricePaise,
   );
   if (pricingConflict) throw new InvalidProductSetupError(pricingConflict);
   const floorConflict = priceFloorConflict(
     input.purchaseCostPaise,
-    input.standardPricePaise,
+    input.wholesalePricePaise ?? input.standardPricePaise,
     resolvedFloors(input),
   );
   if (floorConflict) throw new InvalidProductSetupError(floorConflict);
@@ -172,7 +179,7 @@ function validateInput(input: CreateProductInput) {
 function resolvedFloors(input: CreateProductInput): PriceFloors {
   const recommended = recommendedPriceFloors(
     input.purchaseCostPaise,
-    input.standardPricePaise,
+    input.wholesalePricePaise ?? input.standardPricePaise,
   );
   return {
     ownerFloorPaise: input.ownerFloorPaise ?? recommended.ownerFloorPaise,
@@ -191,7 +198,8 @@ async function findByCommand(
   const result = await client.query<ProductResultRow>(
     `SELECT
        v.id, p.name, v.variant_name, v.sku, v.rack_location,
-       pv.mrp_paise, pv.standard_price_paise, pv.owner_floor_paise,
+       pv.mrp_paise, pv.standard_price_paise, pv.wholesale_price_paise,
+       pv.owner_floor_paise,
        pv.trusted_operator_floor_paise, pv.store_operator_floor_paise,
        ib.latest_landed_cost_paise, p.creation_request_hash
      FROM products p
@@ -219,6 +227,7 @@ function resultView(row: ProductResultRow, replayed: boolean): CreatedProduct {
     damagedStock: 0,
     mrpPaise: Number(row.mrp_paise),
     standardPricePaise: Number(row.standard_price_paise),
+    wholesalePricePaise: Number(row.wholesale_price_paise),
     minimumPricePaise: Math.max(
       Number(row.owner_floor_paise),
       Number(row.latest_landed_cost_paise),
@@ -365,14 +374,16 @@ export async function createProduct(
     await client.query(
       `INSERT INTO price_versions
          (variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+          wholesale_price_paise,
           owner_floor_paise, trusted_operator_floor_paise,
           store_operator_floor_paise, effective_from, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)`,
       [
         variant.rows[0].id,
         input.purchaseCostPaise,
         input.mrpPaise,
         input.standardPricePaise,
+        input.wholesalePricePaise ?? input.standardPricePaise,
         floors.ownerFloorPaise,
         floors.trustedOperatorFloorPaise,
         floors.storeOperatorFloorPaise,
@@ -403,6 +414,8 @@ export async function createProduct(
             input.supplierBarcode && input.supplierBarcode !== sku,
           ),
           standardPricePaise: input.standardPricePaise,
+          wholesalePricePaise:
+            input.wholesalePricePaise ?? input.standardPricePaise,
           mrpPaise: input.mrpPaise,
         },
       ],
@@ -420,6 +433,8 @@ export async function createProduct(
       damagedStock: 0,
       mrpPaise: input.mrpPaise,
       standardPricePaise: input.standardPricePaise,
+      wholesalePricePaise:
+        input.wholesalePricePaise ?? input.standardPricePaise,
       minimumPricePaise: floors.ownerFloorPaise,
       ownerFloorPaise: floors.ownerFloorPaise,
       trustedOperatorFloorPaise: floors.trustedOperatorFloorPaise,

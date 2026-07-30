@@ -34,6 +34,7 @@ const bodySchema = z.object({
   rackLocation: z.string().refine(isRackCode, "Choose a valid rack and shelf."),
   purchaseCostPaise: z.number().int().positive().max(100_000_000),
   standardPricePaise: z.number().int().positive().max(100_000_000),
+  wholesalePricePaise: z.number().int().positive().max(100_000_000).optional(),
   mrpPaise: z.number().int().positive().max(100_000_000),
   ownerFloorPaise: z.number().int().positive().max(100_000_000).optional(),
   trustedOperatorFloorPaise:

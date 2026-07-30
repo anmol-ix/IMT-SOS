@@ -109,9 +109,10 @@ try {
     await database.query(
       `INSERT INTO price_versions
          (variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+          wholesale_price_paise,
           owner_floor_paise, trusted_operator_floor_paise, store_operator_floor_paise,
           effective_from, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)`,
+       VALUES ($1, $2, $3, $4, $4, $5, $6, $7, now(), $8)`,
       [
         variant.rows[0].id,
         item.purchase,
