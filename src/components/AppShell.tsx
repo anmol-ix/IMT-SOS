@@ -28,20 +28,40 @@ type NavItem = {
   icon: IconName;
   ownerOnly?: boolean;
   operatorOnly?: boolean;
-  group?: "Daily work" | "Control";
+  group?: "Work" | "Manage";
+  matches?: Route[];
+  children?: NavItem[];
 };
 
 const navigation: NavItem[] = [
-  { href: "/dashboard", label: "Home", icon: "dashboard", ownerOnly: true, group: "Daily work" },
-  { href: "/", label: "Sell", icon: "sell", group: "Daily work" },
-  { href: "/inventory", label: "Inventory", icon: "inventory", group: "Daily work" },
-  { href: "/customers", label: "Customers", icon: "customers", group: "Daily work" },
-  { href: "/receive", label: "Receive stock", icon: "receive", operatorOnly: true, group: "Daily work" },
-  { href: "/activity", label: "History", icon: "activity", group: "Daily work" },
-  { href: "/approvals", label: "Needs approval", icon: "approvals", ownerOnly: true, group: "Control" },
-  { href: "/insights", label: "Insights", icon: "insights", ownerOnly: true, group: "Control" },
-  { href: "/closing", label: "Daily closing", icon: "closing", ownerOnly: true, group: "Control" },
-  { href: "/team", label: "Team & access", icon: "team", ownerOnly: true, group: "Control" },
+  { href: "/dashboard", label: "Home", icon: "dashboard", ownerOnly: true, group: "Work" },
+  { href: "/", label: "Sell", icon: "sell", group: "Work" },
+  {
+    href: "/inventory",
+    label: "Inventory",
+    icon: "inventory",
+    group: "Work",
+    matches: ["/inventory", "/receive"],
+    children: [
+      { href: "/inventory", label: "Products", icon: "inventory" },
+      { href: "/receive", label: "Receive stock", icon: "receive", operatorOnly: true },
+    ],
+  },
+  { href: "/customers", label: "Customers", icon: "customers", group: "Work" },
+  { href: "/insights", label: "Reports", icon: "insights", ownerOnly: true, group: "Manage" },
+  {
+    href: "/activity",
+    label: "Operations",
+    icon: "activity",
+    group: "Manage",
+    matches: ["/activity", "/approvals", "/closing"],
+    children: [
+      { href: "/activity", label: "Activity", icon: "activity" },
+      { href: "/approvals", label: "Approvals", icon: "approvals", ownerOnly: true },
+      { href: "/closing", label: "Daily closing", icon: "closing", ownerOnly: true },
+    ],
+  },
+  { href: "/team", label: "Settings", icon: "team", ownerOnly: true, group: "Manage" },
 ];
 
 function Icon({ name }: { name: IconName }) {
@@ -82,15 +102,21 @@ function roleLabel(role: AppRole) {
 }
 
 function visibleNavigation(role: AppRole) {
-  return navigation.filter((item) => {
-    if (item.ownerOnly) return role === "BUSINESS_OWNER";
-    if (item.operatorOnly) return role !== "STORE_OPERATOR";
-    return true;
-  });
+  return navigation.filter((item) => visibleToRole(item, role));
+}
+
+function visibleToRole(item: NavItem, role: AppRole) {
+  if (item.ownerOnly) return role === "BUSINESS_OWNER";
+  if (item.operatorOnly) return role !== "STORE_OPERATOR";
+  return true;
 }
 
 function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
+
+function isModuleActive(pathname: string, item: NavItem) {
+  return (item.matches ?? [item.href]).some((href) => isActive(pathname, href));
 }
 
 export default function AppShell({
@@ -104,9 +130,10 @@ export default function AppShell({
 }) {
   const pathname = usePathname();
   const items = visibleNavigation(role);
-  const current = items.find((item) => isActive(pathname, item.href)) ?? items[0];
+  const current = items.find((item) => isModuleActive(pathname, item)) ?? items[0];
+  const secondary = (current?.children ?? []).filter((item) => visibleToRole(item, role));
   const mobilePrimary = items
-    .filter((item) => ["dashboard", "sell", "receive", "inventory", "customers"].includes(item.icon))
+    .filter((item) => ["dashboard", "sell", "inventory", "customers"].includes(item.icon))
     .slice(0, 4);
   const mobileMore = items.filter((item) => !mobilePrimary.includes(item));
   const initials = displayName
@@ -123,7 +150,7 @@ export default function AppShell({
           <BrandMark />
         </Link>
         <nav className={styles.nav} aria-label="Primary navigation">
-          {(["Daily work", "Control"] as const).map((group) => {
+          {(["Work", "Manage"] as const).map((group) => {
             const groupedItems = items.filter((item) => item.group === group);
             if (!groupedItems.length) return null;
             return (
@@ -131,10 +158,10 @@ export default function AppShell({
                 <p className={styles.navGroup}>{group}</p>
                 {groupedItems.map((item) => (
                   <Link
-                    className={`${styles.navLink} ${isActive(pathname, item.href) ? styles.navLinkActive : ""}`}
+                    className={`${styles.navLink} ${isModuleActive(pathname, item) ? styles.navLinkActive : ""}`}
                     href={item.href}
                     key={item.href}
-                    aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                    aria-current={isModuleActive(pathname, item) ? "page" : undefined}
                     title={item.label}
                   >
                     <Icon name={item.icon} />
@@ -157,7 +184,7 @@ export default function AppShell({
         </div>
       </aside>
 
-      <div className={styles.workspace}>
+      <div className={`${styles.workspace} ${secondary.length > 1 ? styles.workspaceWithSubnav : ""}`}>
         <header className={styles.topbar}>
           <div className={styles.topbarTitle}>
             <BrandMark compact className={styles.mobileBrand} />
@@ -165,6 +192,20 @@ export default function AppShell({
           </div>
           <span className={styles.role}>{roleLabel(role)}</span>
         </header>
+        {secondary.length > 1 && (
+          <nav className={styles.subnav} aria-label={`${current.label} navigation`}>
+            {secondary.map((item) => (
+              <Link
+                className={isActive(pathname, item.href) ? styles.subnavActive : ""}
+                href={item.href}
+                key={item.href}
+                aria-current={isActive(pathname, item.href) ? "page" : undefined}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        )}
         <main className={`${styles.content} app-content`} id="main-content">
           {children}
         </main>
@@ -173,10 +214,10 @@ export default function AppShell({
       <nav className={styles.bottomNav} aria-label="Mobile navigation">
         {mobilePrimary.map((item) => (
           <Link
-            className={`${styles.bottomLink} ${isActive(pathname, item.href) ? styles.bottomLinkActive : ""}`}
+            className={`${styles.bottomLink} ${isModuleActive(pathname, item) ? styles.bottomLinkActive : ""}`}
             href={item.href}
             key={item.href}
-            aria-current={isActive(pathname, item.href) ? "page" : undefined}
+            aria-current={isModuleActive(pathname, item) ? "page" : undefined}
           >
             <Icon name={item.icon} />
             <span>{item.label}</span>

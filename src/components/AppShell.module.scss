@@ -156,6 +156,10 @@
   grid-template-rows: var(--topbar-height) minmax(0, 1fr);
 }
 
+.workspaceWithSubnav {
+  grid-template-rows: var(--topbar-height) 2.75rem minmax(0, 1fr);
+}
+
 .topbar {
   position: relative;
   z-index: 10;
@@ -196,6 +200,39 @@
   color: var(--brand-700);
   font-size: 0.6875rem;
   font-weight: 750;
+}
+
+.subnav {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--space-6);
+  background: var(--surface-panel);
+
+  a {
+    display: inline-flex;
+    height: 100%;
+    flex: 0 0 auto;
+    align-items: center;
+    border-bottom: 2px solid transparent;
+    padding: 0 var(--space-3);
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--text-primary);
+    }
+  }
+}
+
+.subnavActive {
+  border-bottom-color: var(--brand-600) !important;
+  color: var(--brand-700) !important;
 }
 
 .content {
@@ -267,12 +304,20 @@
     grid-template-rows: var(--topbar-height) minmax(0, 1fr);
   }
 
+  .workspaceWithSubnav {
+    grid-template-rows: var(--topbar-height) 2.75rem minmax(0, 1fr);
+  }
+
   .topbar {
     padding: 0 var(--space-4);
   }
 
   .mobileBrand {
     display: inline-flex;
+  }
+
+  .subnav {
+    padding: 0 var(--space-2);
   }
 
   .topbarTitle {

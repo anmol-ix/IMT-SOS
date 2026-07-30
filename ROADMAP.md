@@ -4,6 +4,17 @@ Last verified: 30 July 2026
 
 Status means implemented and locally verified, not only designed.
 
+## UX restructure — In progress
+
+- Product-wide assessment, sitemap, role journeys, SWOT and page contracts are
+  defined in `PRODUCT_UX_RESTRUCTURE.md`
+- Global navigation now uses seven business modules instead of exposing every
+  feature as a separate destination
+- Inventory and Operations have contextual subnavigation while existing routes
+  remain functional
+- Next: split Inventory list, product detail, counts and labels into focused
+  routes before redesigning Sales, Customers, Reports, Operations and Settings
+
 ## M0 — Engineering foundation — Complete
 
 - Private email/password authentication, revocable sessions and individual roles
