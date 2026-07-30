@@ -83,6 +83,7 @@ type Props = {
   initialGuestApprovals: GuestApproval[];
   initialStockAdjustments: StockAdjustment[];
   initialOfflineSaleConflicts: OfflineSaleConflict[];
+  mode?: "OFFLINE" | "STOCK" | "GUEST" | "PRICE" | "ALL";
 };
 
 const reasons = [
@@ -121,6 +122,7 @@ export default function ApprovalsWorkspace({
   initialGuestApprovals,
   initialStockAdjustments,
   initialOfflineSaleConflicts,
+  mode = "ALL",
 }: Props) {
   const [approvals, setApprovals] = useState(initialApprovals);
   const [guestApprovals, setGuestApprovals] = useState(initialGuestApprovals);
@@ -332,7 +334,7 @@ export default function ApprovalsWorkspace({
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
 
-        <section className="approval-group" aria-labelledby="offline-approval-heading">
+        {(mode === "ALL" || mode === "OFFLINE") && <section className="approval-group" aria-labelledby="offline-approval-heading">
           <div className="section-title">
             <h2 id="offline-approval-heading">Rejected offline sales</h2>
             <span>{offlineSaleConflicts.length} waiting</span>
@@ -417,9 +419,9 @@ export default function ApprovalsWorkspace({
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="approval-group" aria-labelledby="stock-approval-heading">
+        {(mode === "ALL" || mode === "STOCK") && <section className="approval-group" aria-labelledby="stock-approval-heading">
           <div className="section-title">
             <h2 id="stock-approval-heading">Stock-count differences</h2>
             <span>{stockAdjustments.length} waiting</span>
@@ -514,9 +516,9 @@ export default function ApprovalsWorkspace({
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="approval-group" aria-labelledby="guest-approval-heading">
+        {(mode === "ALL" || mode === "GUEST") && <section className="approval-group" aria-labelledby="guest-approval-heading">
           <div className="section-title">
             <h2 id="guest-approval-heading">Customer-declined Guest sales</h2>
             <span>{guestApprovals.length} waiting</span>
@@ -585,9 +587,9 @@ export default function ApprovalsWorkspace({
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="approval-group" aria-labelledby="price-approval-heading">
+        {(mode === "ALL" || mode === "PRICE") && <section className="approval-group" aria-labelledby="price-approval-heading">
           <div className="section-title">
             <h2 id="price-approval-heading">Lower-price requests</h2>
             <span>{approvals.length} waiting</span>
@@ -647,7 +649,7 @@ export default function ApprovalsWorkspace({
             );
           })}
         </div>
-        </section>
+        </section>}
       </section>
     </AppShell>
   );

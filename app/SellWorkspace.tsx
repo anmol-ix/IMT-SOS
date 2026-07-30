@@ -36,6 +36,7 @@ import {
 import BarcodeScanner from "./BarcodeScanner";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
+import Modal from "@/components/ui/Modal";
 
 type Product = {
   id: string;
@@ -61,6 +62,8 @@ type Props = {
   displayName: string;
   role: "BUSINESS_OWNER" | "TRUSTED_OPERATOR" | "STORE_OPERATOR";
   initialProducts: Product[];
+  initialSaleType?: SaleType;
+  fixedSaleType?: boolean;
 };
 
 type PriceApproval = {
@@ -246,10 +249,12 @@ export default function SellWorkspace({
   displayName,
   role,
   initialProducts,
+  initialSaleType = "RETAIL",
+  fixedSaleType = false,
 }: Props) {
   const online = useOnlineStatus();
   const [query, setQuery] = useState("");
-  const [saleType, setSaleType] = useState<SaleType>("RETAIL");
+  const [saleType, setSaleType] = useState<SaleType>(initialSaleType);
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [selected, setSelected] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -1136,7 +1141,7 @@ export default function SellWorkspace({
 
   return (
     <AppShell displayName={displayName} role={role}>
-      <section className="sell-page" aria-labelledby="sell-heading">
+      <section className="sell-page sale-workspace-page" aria-labelledby="sell-heading">
         <PageHeader
           eyebrow={receipt
             ? `${receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale complete`
@@ -1150,7 +1155,7 @@ export default function SellWorkspace({
               : "Scan a product, apply the permitted Retail price and collect payment."}
         />
 
-        {!receipt && (
+        {!receipt && !fixedSaleType && (
           <div className="sale-type-switch" aria-label="Choose Retail or Wholesale sale">
             <button
               type="button"
@@ -1203,6 +1208,14 @@ export default function SellWorkspace({
         </form>}
 
         {!receipt && (
+          <details className="offline-readiness-disclosure">
+            <summary>
+              <span>
+                <strong>{online ? "Online selling ready" : "Offline mode"}</strong>
+                <small>Device, saved catalogue and pending sync status</small>
+              </span>
+              <b>{offlineSales.length ? `${offlineSales.length} waiting` : "No sales waiting"}</b>
+            </summary>
           <div className="offline-readiness" role="status">
             <div
               className={`catalog-sync-state ${online ? catalogStatus : "offline"}`}
@@ -1304,6 +1317,7 @@ export default function SellWorkspace({
               </div>
             )}
           </div>
+          </details>
         )}
 
         {showScanner && !receipt && (
@@ -1737,8 +1751,15 @@ export default function SellWorkspace({
                           >
                             Find or add customer
                           </button>
-                          {showCustomerFinder && (
-                            <div className="customer-finder">
+                          <Modal
+                            open={showCustomerFinder}
+                            title="Find or add customer"
+                            description={saleType === "WHOLESALE"
+                              ? "Choose the shopkeeper for this Wholesale sale."
+                              : "Search existing records before creating a new customer."}
+                            onClose={() => setShowCustomerFinder(false)}
+                          >
+                            <div className="customer-finder customer-finder--modal">
                               <label>Phone number or name
                                 <div className="inline-find">
                                   <input
@@ -1806,7 +1827,7 @@ export default function SellWorkspace({
                                 </div>
                               )}
                             </div>
-                          )}
+                          </Modal>
                         </>
                       )}
                     </section>

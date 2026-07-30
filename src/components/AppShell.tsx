@@ -23,19 +23,30 @@ type IconName =
   | "team";
 
 type NavItem = {
-  href: Route;
+  href: string;
   label: string;
   icon: IconName;
   ownerOnly?: boolean;
   operatorOnly?: boolean;
   group?: "Work" | "Manage";
-  matches?: Route[];
+  matches?: string[];
   children?: NavItem[];
 };
 
 const navigation: NavItem[] = [
   { href: "/dashboard", label: "Home", icon: "dashboard", ownerOnly: true, group: "Work" },
-  { href: "/", label: "Sell", icon: "sell", group: "Work" },
+  {
+    href: "/sell/retail",
+    label: "Sell",
+    icon: "sell",
+    group: "Work",
+    matches: ["/sell", "/sales"],
+    children: [
+      { href: "/sell/retail", label: "Retail sale", icon: "sell" },
+      { href: "/sell/wholesale", label: "Wholesale sale", icon: "sell" },
+      { href: "/sales", label: "Sales history", icon: "activity" },
+    ],
+  },
   {
     href: "/inventory",
     label: "Inventory",
@@ -44,24 +55,49 @@ const navigation: NavItem[] = [
     matches: ["/inventory", "/receive"],
     children: [
       { href: "/inventory", label: "Products", icon: "inventory" },
-      { href: "/receive", label: "Receive stock", icon: "receive", operatorOnly: true },
+      { href: "/inventory/receive", label: "Receive stock", icon: "receive", operatorOnly: true },
+      { href: "/inventory/counts", label: "Stock counts", icon: "approvals", operatorOnly: true },
+      { href: "/inventory/labels", label: "Labels", icon: "activity" },
     ],
   },
   { href: "/customers", label: "Customers", icon: "customers", group: "Work" },
-  { href: "/insights", label: "Reports", icon: "insights", ownerOnly: true, group: "Manage" },
   {
-    href: "/activity",
+    href: "/reports",
+    label: "Reports",
+    icon: "insights",
+    ownerOnly: true,
+    group: "Manage",
+    children: [
+      { href: "/reports", label: "Overview", icon: "insights" },
+      { href: "/reports/sales", label: "Sales", icon: "sell" },
+      { href: "/reports/inventory", label: "Inventory", icon: "inventory" },
+      { href: "/reports/customers", label: "Customers", icon: "customers" },
+    ],
+  },
+  {
+    href: "/operations/activity",
     label: "Operations",
     icon: "activity",
     group: "Manage",
-    matches: ["/activity", "/approvals", "/closing"],
+    matches: ["/operations", "/activity", "/approvals", "/closing"],
     children: [
-      { href: "/activity", label: "Activity", icon: "activity" },
-      { href: "/approvals", label: "Approvals", icon: "approvals", ownerOnly: true },
-      { href: "/closing", label: "Daily closing", icon: "closing", ownerOnly: true },
+      { href: "/operations/activity", label: "Activity", icon: "activity" },
+      { href: "/operations/approvals", label: "Approvals", icon: "approvals", ownerOnly: true },
+      { href: "/operations/closing", label: "Daily closing", icon: "closing", ownerOnly: true },
     ],
   },
-  { href: "/team", label: "Settings", icon: "team", ownerOnly: true, group: "Manage" },
+  {
+    href: "/settings/team",
+    label: "Settings",
+    icon: "team",
+    ownerOnly: true,
+    group: "Manage",
+    children: [
+      { href: "/settings/team", label: "Team", icon: "team" },
+      { href: "/settings/invitations", label: "Invitations", icon: "customers" },
+      { href: "/settings/devices", label: "Devices", icon: "inventory" },
+    ],
+  },
 ];
 
 function Icon({ name }: { name: IconName }) {
@@ -132,6 +168,9 @@ export default function AppShell({
   const items = visibleNavigation(role);
   const current = items.find((item) => isModuleActive(pathname, item)) ?? items[0];
   const secondary = (current?.children ?? []).filter((item) => visibleToRole(item, role));
+  const activeSecondary = [...secondary]
+    .sort((left, right) => right.href.length - left.href.length)
+    .find((item) => isActive(pathname, item.href));
   const mobilePrimary = items
     .filter((item) => ["dashboard", "sell", "inventory", "customers"].includes(item.icon))
     .slice(0, 4);
@@ -159,7 +198,7 @@ export default function AppShell({
                 {groupedItems.map((item) => (
                   <Link
                     className={`${styles.navLink} ${isModuleActive(pathname, item) ? styles.navLinkActive : ""}`}
-                    href={item.href}
+                    href={item.href as Route}
                     key={item.href}
                     aria-current={isModuleActive(pathname, item) ? "page" : undefined}
                     title={item.label}
@@ -196,10 +235,10 @@ export default function AppShell({
           <nav className={styles.subnav} aria-label={`${current.label} navigation`}>
             {secondary.map((item) => (
               <Link
-                className={isActive(pathname, item.href) ? styles.subnavActive : ""}
-                href={item.href}
+                className={activeSecondary?.href === item.href ? styles.subnavActive : ""}
+                href={item.href as Route}
                 key={item.href}
-                aria-current={isActive(pathname, item.href) ? "page" : undefined}
+                aria-current={activeSecondary?.href === item.href ? "page" : undefined}
               >
                 {item.label}
               </Link>
@@ -215,7 +254,7 @@ export default function AppShell({
         {mobilePrimary.map((item) => (
           <Link
             className={`${styles.bottomLink} ${isModuleActive(pathname, item) ? styles.bottomLinkActive : ""}`}
-            href={item.href}
+            href={item.href as Route}
             key={item.href}
             aria-current={isModuleActive(pathname, item) ? "page" : undefined}
           >
@@ -230,7 +269,7 @@ export default function AppShell({
           </summary>
           <div className={styles.moreMenu}>
             {mobileMore.map((item) => (
-              <Link href={item.href} key={item.href}>
+              <Link href={item.href as Route} key={item.href}>
                 <Icon name={item.icon} />
                 <span>{item.label}</span>
               </Link>

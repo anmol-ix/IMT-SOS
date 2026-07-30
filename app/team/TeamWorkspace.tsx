@@ -12,6 +12,7 @@ import type { AppDevice } from "@/server/devices";
 type Props = {
   initialTeam: TeamAccessView;
   initialDevices: AppDevice[];
+  mode?: "TEAM" | "INVITATIONS" | "DEVICES";
 };
 
 type ApiError = {
@@ -47,7 +48,7 @@ async function copySetupLink(setupPath: string) {
   await navigator.clipboard.writeText(`${window.location.origin}${setupPath}`);
 }
 
-export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
+export default function TeamWorkspace({ initialTeam, initialDevices, mode = "TEAM" }: Props) {
   const [members, setMembers] = useState(initialTeam.members);
   const [invitations, setInvitations] = useState(initialTeam.invitations);
   const [devices, setDevices] = useState(initialDevices);
@@ -203,10 +204,14 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
   return (
     <section className="sell-page team-page" aria-labelledby="team-access-heading">
       <PageHeader
-        eyebrow="Owner control"
+        eyebrow="Settings"
         headingId="team-access-heading"
-        title="Team & devices"
-        description="Manage account roles, setup links and approved devices."
+        title={mode === "INVITATIONS" ? "Invitations" : mode === "DEVICES" ? "Devices" : "Team"}
+        description={mode === "INVITATIONS"
+          ? "Create and manage private setup links for new team members."
+          : mode === "DEVICES"
+            ? "Approve or revoke browsers that may use bounded offline selling."
+            : "Manage who can use the app and what each person is allowed to do."}
       />
 
       {(message || error) && (
@@ -227,7 +232,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
         </div>
       )}
 
-      <section className="team-section invite-panel" aria-labelledby="invite-heading">
+      {mode === "INVITATIONS" && <section className="team-section invite-panel" aria-labelledby="invite-heading">
         <div className="team-section-heading">
           <div>
             <p className="eyebrow">New access</p>
@@ -281,9 +286,9 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             Store access plus receiving stock and wider operational actions.
           </span>
         </div>
-      </section>
+      </section>}
 
-      {invitations.length > 0 && (
+      {mode === "INVITATIONS" && invitations.length > 0 && (
         <section className="team-section" aria-labelledby="pending-heading">
           <div className="team-section-heading">
             <div>
@@ -351,7 +356,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
         </section>
       )}
 
-      <section className="team-section" aria-labelledby="members-heading">
+      {mode === "TEAM" && <section className="team-section" aria-labelledby="members-heading">
         <div className="team-section-heading">
           <div>
             <p className="eyebrow">Current access</p>
@@ -419,9 +424,9 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             );
           })}
         </div>
-      </section>
+      </section>}
 
-      <section className="team-section" aria-labelledby="devices-heading">
+      {mode === "DEVICES" && <section className="team-section" aria-labelledby="devices-heading">
         <div className="team-section-heading">
           <div>
             <p className="eyebrow">Offline control</p>
@@ -485,7 +490,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             Devices appear here after a team member opens the Sell screen online.
           </p>
         )}
-      </section>
+      </section>}
     </section>
   );
 }

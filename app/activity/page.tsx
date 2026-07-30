@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import { requireCurrentUser } from "@/server/auth/current-user";
@@ -124,15 +125,26 @@ function ActivityCard({ item }: { item: ActivityItem }) {
 export default async function ActivityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ type?: string }>;
+  searchParams: Promise<{ type?: string; page?: string }>;
 }) {
   const user = await requireCurrentUser();
-  const requestedType = (await searchParams).type?.toUpperCase();
+  const parameters = await searchParams;
+  const requestedType = parameters.type?.toUpperCase();
   const filter: ActivityFilter =
     requestedType === "SALES" || requestedType === "APPROVALS"
       ? requestedType
       : "ALL";
   const items = await listActivity(user, filter);
+  const page = Math.max(1, Math.min(10, Number.parseInt(parameters.page ?? "1", 10) || 1));
+  const pageSize = 12;
+  const visibleItems = items.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  function pageHref(nextPage: number) {
+    const params = new URLSearchParams();
+    if (filter !== "ALL") params.set("type", filter.toLowerCase());
+    if (nextPage > 1) params.set("page", String(nextPage));
+    return `/operations/activity${params.size ? `?${params}` : ""}` as Route;
+  }
   return (
     <AppShell displayName={user.displayName} role={user.role}>
       <section className="sell-page activity-page" aria-labelledby="activity-heading">
@@ -166,15 +178,22 @@ export default async function ActivityPage({
           </Link>
         </div>
 
-        {items.length ? (
+        {visibleItems.length ? (
           <section className="activity-list" aria-label="Recent activity">
-            {items.map((item) => <ActivityCard key={`${item.kind}-${item.id}`} item={item} />)}
+            {visibleItems.map((item) => <ActivityCard key={`${item.kind}-${item.id}`} item={item} />)}
           </section>
         ) : (
           <section className="results-panel empty-approvals">
             <h2>No activity yet</h2>
             <p>Completed sales and approval requests will appear here automatically.</p>
           </section>
+        )}
+        {pageCount > 1 && (
+          <nav className="pagination" aria-label="Activity pages">
+            <Link className={page === 1 ? "disabled" : ""} aria-disabled={page === 1} href={pageHref(Math.max(1, page - 1))}>Previous</Link>
+            <span>Page {page} of {pageCount}</span>
+            <Link className={page === pageCount ? "disabled" : ""} aria-disabled={page === pageCount} href={pageHref(Math.min(pageCount, page + 1))}>Next</Link>
+          </nav>
         )}
       </section>
     </AppShell>

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import { buildLabelCsv } from "@/shared/label-csv";
@@ -99,12 +100,14 @@ type Inventory = {
 
 type InventoryFilter = "ALL" | "LOW" | "OUT" | "MISSING_RACK";
 type DetailTab = "OVERVIEW" | "PURCHASES" | "SALES" | "MOVEMENTS";
+export type InventoryWorkspaceMode = "LIST" | "DETAIL" | "COUNT" | "LABELS";
 
 type Props = {
   displayName: string;
   role: Role;
   initialProducts: Product[];
   initialInventory?: Inventory;
+  mode?: InventoryWorkspaceMode;
 };
 
 const conditions: Array<[StockCondition, string]> = [
@@ -208,8 +211,10 @@ export default function InventoryWorkspace({
   role,
   initialProducts,
   initialInventory,
+  mode = "LIST",
 }: Props) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [products, setProducts] = useState(initialProducts);
   const [filter, setFilter] = useState<InventoryFilter>("ALL");
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
@@ -295,7 +300,14 @@ export default function InventoryWorkspace({
       return matchesSearch && matchesFilter;
     });
   }, [filter, products, query]);
-  const selectedShownCount = filteredProducts.filter(
+  const pageSize = 15;
+  const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleProducts = filteredProducts.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+  const selectedShownCount = visibleProducts.filter(
     (product) => selectedLabels.includes(product.id),
   ).length;
 
@@ -503,18 +515,41 @@ export default function InventoryWorkspace({
 
   return (
     <AppShell displayName={displayName} role={role}>
-      <section className="sell-page inventory-page" aria-labelledby="inventory-heading">
+      <section className={`sell-page inventory-page inventory-mode-${mode.toLowerCase()}`} aria-labelledby="inventory-heading">
         <PageHeader
-          eyebrow="Stock in hand"
+          eyebrow={mode === "LABELS"
+            ? "Label export"
+            : mode === "COUNT"
+              ? "Physical verification"
+              : mode === "DETAIL"
+                ? "Product record"
+                : "Stock in hand"}
           headingId="inventory-heading"
-          title="Inventory"
-          description="Know what is available, what it cost and how every SKU moved."
+          title={mode === "LABELS"
+            ? "Prepare label CSV"
+            : mode === "COUNT"
+              ? "Stock count"
+              : mode === "DETAIL"
+                ? initialInventory?.product.name ?? "Product"
+                : "Products"}
+          description={mode === "LABELS"
+            ? "Select SKUs and download the product details for your existing label software."
+            : mode === "COUNT"
+              ? "Choose a SKU, enter what is physically present and send only the difference for approval."
+              : mode === "DETAIL"
+                ? "Review stock, prices, buying, selling and every movement for this SKU."
+                : "Search every SKU and see current stock, rack, pricing and stock value."}
+          actions={mode === "DETAIL"
+            ? <Link className="secondary-button" href="/inventory">Back to products</Link>
+            : mode === "COUNT" && role === "BUSINESS_OWNER"
+              ? <Link className="secondary-button" href="/operations/approvals/stock">Review submitted counts</Link>
+              : undefined}
         />
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
 
-        <section className="inventory-kpis" aria-label="Inventory summary">
+        {mode === "LIST" && <section className="inventory-kpis" aria-label="Inventory summary">
           <article>
             <small>Active SKUs</small>
             <strong>{products.length}</strong>
@@ -537,15 +572,18 @@ export default function InventoryWorkspace({
             <small>Out of stock</small>
             <strong>{inventorySummary.outOfStock}</strong>
           </article>
-        </section>
+        </section>}
 
-        <section className="inventory-toolbar" aria-label="Find and filter inventory">
+        {mode !== "DETAIL" && <section className="inventory-toolbar" aria-label="Find and filter inventory">
           <label className="inventory-search-field">
             <span>Find a SKU</span>
             <input
               id="inventory-search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
               placeholder="Product, SKU, barcode or rack"
             />
           </label>
@@ -553,7 +591,10 @@ export default function InventoryWorkspace({
             <span>Show</span>
             <select
               value={filter}
-              onChange={(event) => setFilter(event.target.value as InventoryFilter)}
+              onChange={(event) => {
+                setFilter(event.target.value as InventoryFilter);
+                setPage(1);
+              }}
             >
               <option value="ALL">All stock</option>
               <option value="LOW">Low stock</option>
@@ -561,7 +602,7 @@ export default function InventoryWorkspace({
               <option value="MISSING_RACK">Rack missing</option>
             </select>
           </label>
-          <div className="inventory-label-actions" aria-label="Label CSV selection">
+          {mode === "LABELS" && <div className="inventory-label-actions" aria-label="Label CSV selection">
             <span aria-live="polite">
               <strong>{selectedLabels.length}</strong>
               <small>SKUs selected for labels</small>
@@ -572,12 +613,12 @@ export default function InventoryWorkspace({
               onClick={() => setSelectedLabels((current) => [
                 ...new Set([
                   ...current,
-                  ...filteredProducts.map((product) => product.id),
+                  ...visibleProducts.map((product) => product.id),
                 ]),
               ])}
               disabled={
                 !filteredProducts.length
-                || selectedShownCount === filteredProducts.length
+                || selectedShownCount === visibleProducts.length
               }
             >
               Add shown
@@ -598,21 +639,25 @@ export default function InventoryWorkspace({
             >
               Download CSV
             </button>
-          </div>
-        </section>
+          </div>}
+        </section>}
 
-        <div className="inventory-layout inventory-command-center">
-          <section className="inventory-products" aria-labelledby="inventory-products-heading">
+        <div className={`inventory-layout inventory-command-center ${mode === "DETAIL" ? "detail-only" : ""}`}>
+          {mode !== "DETAIL" && <section className="inventory-products" aria-labelledby="inventory-products-heading">
             <div className="section-title">
               <h2 id="inventory-products-heading">Stock list</h2>
-              <span>{filteredProducts.length} shown</span>
+              <span>
+                {filteredProducts.length
+                  ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filteredProducts.length)} of ${filteredProducts.length}`
+                  : "0 shown"}
+              </span>
             </div>
             {filteredProducts.length ? (
               <div className="inventory-table-wrap">
                 <table className="inventory-table">
                   <thead>
                     <tr>
-                      <th aria-label="Select for labels" />
+                      {mode === "LABELS" && <th aria-label="Select for labels" />}
                       <th>Product</th>
                       <th>Rack</th>
                       <th>In stock</th>
@@ -622,7 +667,7 @@ export default function InventoryWorkspace({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredProducts.map((product) => {
+                    {visibleProducts.map((product) => {
                       const low = product.reorderPoint !== null
                         && product.reorderPoint !== undefined
                         && product.stock <= product.reorderPoint;
@@ -631,26 +676,35 @@ export default function InventoryWorkspace({
                           className={selectedId === product.id ? "selected" : ""}
                           key={product.id}
                         >
-                          <td data-label="Label">
+                          {mode === "LABELS" && <td data-label="Label">
                             <input
                               type="checkbox"
                               checked={selectedLabels.includes(product.id)}
                               onChange={() => toggleLabel(product.id)}
                               aria-label={`Select ${product.name} for label export`}
                             />
-                          </td>
+                          </td>}
                           <td data-label="Product">
-                            <button
-                              type="button"
+                            {mode === "COUNT" ? <button
+                                type="button"
+                                className="inventory-product-link"
+                                onClick={() => selectProduct(product)}
+                              >
+                                <strong>{product.name}</strong>
+                                <small>
+                                  {product.variantName ? `${product.variantName} · ` : ""}
+                                  {product.sku}
+                                </small>
+                              </button> : <Link
                               className="inventory-product-link"
-                              onClick={() => selectProduct(product)}
+                              href={`/inventory/${product.id}`}
                             >
                               <strong>{product.name}</strong>
                               <small>
                                 {product.variantName ? `${product.variantName} · ` : ""}
                                 {product.sku}
                               </small>
-                            </button>
+                            </Link>}
                           </td>
                           <td data-label="Rack">{product.rackLocation ?? "Not set"}</td>
                           <td data-label="In stock">
@@ -679,9 +733,16 @@ export default function InventoryWorkspace({
             ) : (
               <p className="inventory-empty-copy">No SKUs match this search or filter.</p>
             )}
-          </section>
+            {pageCount > 1 && (
+              <nav className="pagination" aria-label="Inventory pages">
+                <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
+                <span>Page {currentPage} of {pageCount}</span>
+                <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
+              </nav>
+            )}
+          </section>}
 
-          <section className="inventory-detail" aria-live="polite">
+          {(mode === "DETAIL" || mode === "COUNT") && <section className="inventory-detail" aria-live="polite">
             {!selectedProduct && !loading && (
               <div className="inventory-empty">
                 <span>↗</span>
@@ -711,7 +772,7 @@ export default function InventoryWorkspace({
                       : "Stock needs checking"}
                   </span>
                 </div>
-                <nav className="inventory-tabs" aria-label="SKU information">
+                {mode === "DETAIL" && <nav className="inventory-tabs" aria-label="SKU information">
                   {([
                     ["OVERVIEW", "Overview"],
                     ["PURCHASES", `Purchases (${inventory.purchases.length})`],
@@ -727,10 +788,11 @@ export default function InventoryWorkspace({
                       {label}
                     </button>
                   ))}
-                </nav>
+                </nav>}
 
-                {activeTab === "OVERVIEW" && (
+                {(mode === "DETAIL" ? activeTab === "OVERVIEW" : mode === "COUNT") && (
                   <>
+                {mode === "DETAIL" && <>
                 <section className="inventory-summary">
                   <div className="balance-grid">
                     {conditions.map(([value, label]) => (
@@ -887,7 +949,9 @@ export default function InventoryWorkspace({
                     </form>
                   </section>
                 )}
+                </>}
 
+                {mode === "COUNT" && (
                 <section className="count-panel" aria-labelledby="count-heading">
                   <p className="eyebrow">Stock check</p>
                   <h2 id="count-heading">Count what is physically present</h2>
@@ -973,10 +1037,11 @@ export default function InventoryWorkspace({
                     </p>
                   )}
                 </section>
+                )}
                   </>
                 )}
 
-                {activeTab === "PURCHASES" && (
+                {mode === "DETAIL" && activeTab === "PURCHASES" && (
                   <section className="inventory-history-panel" aria-labelledby="purchase-history-heading">
                     <div className="section-title">
                       <div>
@@ -1028,7 +1093,7 @@ export default function InventoryWorkspace({
                   </section>
                 )}
 
-                {activeTab === "SALES" && (
+                {mode === "DETAIL" && activeTab === "SALES" && (
                   <section className="inventory-history-panel" aria-labelledby="sales-history-heading">
                     <div className="section-title">
                       <div>
@@ -1080,7 +1145,7 @@ export default function InventoryWorkspace({
                   </section>
                 )}
 
-                {activeTab === "MOVEMENTS" && (
+                {mode === "DETAIL" && activeTab === "MOVEMENTS" && (
                 <section className="movement-panel" aria-labelledby="movement-heading">
                   <div className="section-title">
                     <div>
@@ -1117,7 +1182,7 @@ export default function InventoryWorkspace({
                 )}
               </>
             )}
-          </section>
+          </section>}
         </div>
       </section>
     </AppShell>

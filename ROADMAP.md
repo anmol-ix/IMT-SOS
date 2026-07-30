@@ -4,16 +4,30 @@ Last verified: 30 July 2026
 
 Status means implemented and locally verified, not only designed.
 
-## UX restructure — In progress
+## UX restructure — Complete locally
 
 - Product-wide assessment, sitemap, role journeys, SWOT and page contracts are
   defined in `PRODUCT_UX_RESTRUCTURE.md`
 - Global navigation now uses seven business modules instead of exposing every
   feature as a separate destination
-- Inventory and Operations have contextual subnavigation while existing routes
-  remain functional
-- Next: split Inventory list, product detail, counts and labels into focused
-  routes before redesigning Sales, Customers, Reports, Operations and Settings
+- Sell now separates Retail, Wholesale and paginated sales history
+- Inventory now separates product list, product detail, receive stock, physical
+  counts and label CSV preparation
+- Customers now separates the searchable directory from a focused customer
+  profile and purchase history
+- Reports now separates overview, sales, inventory and customer decisions
+- Operations now separates activity, approval queues and daily closing; each
+  approval type opens as one focused queue
+- Settings now separates team members, invitations and approved devices
+- Home is reduced to four useful numbers, one action queue and four shortcuts
+- Customer selection in Sell uses a reusable responsive dialog instead of
+  expanding the checkout page
+- Desktop product tables convert to cards on mobile; large Inventory, Activity
+  and Sales lists are paginated
+- The one-time workbook migration screen is removed from product navigation and
+  its legacy route returns to Inventory
+- Verified locally with lint, TypeScript, 67 tests, production build, browser
+  journeys and desktop/mobile width checks
 
 ## M0 — Engineering foundation — Complete
 

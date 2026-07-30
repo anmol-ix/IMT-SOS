@@ -79,13 +79,13 @@ export default async function InsightsPage() {
         <PageHeader
           eyebrow="Management view"
           headingId="insights-heading"
-          title="Business insights"
+          title="Reports overview"
           description="Sales, margin and stock signals that need an owner’s attention."
           actions={
             <div className="dashboard-updated">
               <span>Updated</span>
               <strong>{reportDate.format(new Date(insights.asOf))}</strong>
-              <Link href="/insights">Refresh</Link>
+              <Link href="/reports">Refresh</Link>
             </div>
           }
         />
@@ -197,7 +197,7 @@ export default async function InsightsPage() {
             {insights.topProducts.length ? (
               <div className="insight-ranking">
                 {insights.topProducts.map((product, index) => (
-                  <Link href={`/inventory?product=${product.variantId}`} key={product.variantId}>
+                  <Link href={`/inventory/${product.variantId}`} key={product.variantId}>
                     <span className="rank">{index + 1}</span>
                     <span>
                       <strong>{product.productName}</strong>
@@ -238,7 +238,7 @@ export default async function InsightsPage() {
             {insights.stockToReview.length ? (
               <div className="insight-ranking compact">
                 {insights.stockToReview.map((product) => (
-                  <Link href={`/inventory?product=${product.variantId}`} key={product.variantId}>
+                  <Link href={`/inventory/${product.variantId}`} key={product.variantId}>
                     <span>
                       <strong>{product.productName}</strong>
                       <small>{product.sku} · {product.quantity} units</small>
