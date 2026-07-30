@@ -21,9 +21,10 @@
     "deploy:prepare": "npm run deploy:check && node scripts/prepare-deployment.mjs",
     "db:roles": "node scripts/configure-database-roles.mjs",
     "db:seed-demo": "node scripts/seed-demo-products.mjs",
-    "security:prove-operator-denial": "node scripts/prove-operator-denial.mjs",
-    "test:local-sale": "node scripts/prove-operator-denial.mjs",
-    "test:local-operations": "node scripts/prove-operator-denial.mjs",
+    "auth:create-setup-link": "node scripts/create-password-setup-link.mjs",
+    "security:prove-operator-denial": "vitest run tests/integration/team-access.test.ts",
+    "test:local-sale": "npm run test:integration",
+    "test:local-operations": "npm run test:integration",
     "security:audit": "npm audit --omit=dev --audit-level=high",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
@@ -32,8 +33,6 @@
     "sharp": "0.35.3"
   },
   "dependencies": {
-    "@workos-inc/authkit-nextjs": "latest",
-    "@workos-inc/node": "latest",
     "@zxing/browser": "0.1.5",
     "next": "^16.2.11",
     "node-pg-migrate": "^9.0.0",

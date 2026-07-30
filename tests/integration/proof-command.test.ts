@@ -36,10 +36,10 @@ describeWithDatabase("idempotent PostgreSQL command", () => {
       [`Integration ${randomUUID()}`],
     );
     const user = await migrationPool.query<{ id: string }>(
-      `INSERT INTO app_users (business_id, workos_user_id, display_name, role, status)
-       VALUES ($1, $2, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE')
+      `INSERT INTO app_users (business_id, display_name, role, status)
+       VALUES ($1, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE')
        RETURNING id`,
-      [business.rows[0].id, `workos_${randomUUID()}`],
+      [business.rows[0].id],
     );
     actorUserId = user.rows[0].id;
   });

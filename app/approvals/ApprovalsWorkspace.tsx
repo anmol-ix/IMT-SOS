@@ -326,6 +326,7 @@ export default function ApprovalsWorkspace({
           <Link href="/receive">Receive</Link>
           <Link href="/inventory">Inventory</Link>
           <Link href="/activity">Activity</Link>
+          <Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">Business owner</span>
       </header>

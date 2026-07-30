@@ -774,7 +774,7 @@ export default function ReceiveWorkspace({
       <header className="topbar">
         <div><p className="brand">ItsMyToy</p><p className="welcome">Hi, {displayName}</p></div>
         <nav className="app-nav" aria-label="Operations">
-          {role === "BUSINESS_OWNER" && <Link href="/dashboard">Home</Link>}<Link href="/">Sell</Link><Link className="active" href="/receive">Receive</Link><Link href="/inventory">Inventory</Link><Link href="/activity">Activity</Link>
+          {role === "BUSINESS_OWNER" && <Link href="/dashboard">Home</Link>}<Link href="/">Sell</Link><Link className="active" href="/receive">Receive</Link><Link href="/inventory">Inventory</Link><Link href="/activity">Activity</Link><Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">
           {role === "BUSINESS_OWNER" ? "Business owner" : "Trusted operator"}

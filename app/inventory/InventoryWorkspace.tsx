@@ -378,6 +378,7 @@ export default function InventoryWorkspace({
           {role !== "STORE_OPERATOR" && <Link href="/receive">Receive</Link>}
           <Link className="active" href="/inventory">Inventory</Link>
           <Link href="/activity">Activity</Link>
+          <Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">{roleLabel(role)}</span>
       </header>

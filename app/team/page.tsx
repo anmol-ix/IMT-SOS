@@ -25,6 +25,7 @@ export default async function TeamPage() {
           <Link href="/inventory">Inventory</Link>
           <Link href="/activity">Activity</Link>
           <Link className="active" href="/team">Team</Link>
+          <Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">Business owner</span>
       </header>

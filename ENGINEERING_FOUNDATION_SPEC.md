@@ -2,12 +2,18 @@
 
 ## Engineering Foundation Specification
 
-**Version:** 0.3  
-**Date:** 21 July 2026  
-**Status:** Architecture and technology baseline accepted for walking-skeleton implementation  
+**Version:** 0.4
+**Date:** 30 July 2026
+**Status:** Architecture baseline updated for internal authentication
 **Companion documents:** `PHASE_1_PRODUCT_BLUEPRINT.md`, `BUSINESS_DECISIONS.md`, `TECHNOLOGY_EVALUATION_ADR.md`
 
 ---
+
+> **Current authentication override (29 July 2026):** Any WorkOS-specific
+> identity text in this baseline is superseded. The implemented internal-tool
+> model is private email/password access with `scrypt` hashes, single-use setup
+> links, generic login failures, temporary lockout and revocable PostgreSQL
+> sessions. Authorization roles and server/database enforcement remain intact.
 
 ## 1. Purpose
 
@@ -784,9 +790,11 @@ No conflict is converted silently into a different sale price or quantity.
 
 - Every person has an individual account; shared accounts are prohibited.
 - Owners invite/activate store operators.
-- Owners require multi-factor authentication or a passkey.
-- A standards-compliant managed identity provider is preferred over custom password storage.
-- WebAuthn/passkeys are preferred where supported because they use scoped public-key credentials: <https://www.w3.org/TR/webauthn/all/>.
+- Accounts use private email/password authentication with Node.js `scrypt`,
+  single-use setup links, login lockout and revocable database sessions.
+- There is no public registration or password-reset-by-email flow.
+- Passkeys or multi-factor authentication may be added if the internal access
+  boundary expands or a security review requires stronger authentication.
 - Recovery procedures must not allow a store operator to take over an owner account.
 
 ### 10.2 Sessions and devices
@@ -876,7 +884,7 @@ Target **OWASP ASVS Level 2** as the application-security baseline because the s
 | Concurrent overselling | Two devices sell final unit | Balance-row locks, deterministic order, atomic transaction |
 | Insecure direct object reference | Operator guesses another sale/customer ID | Ownership/role checks on every resource query |
 | Lost device | Authenticated phone is stolen | Device revocation, short lock, bounded offline grace, minimal cache |
-| Owner-account takeover | Attacker gains full control | Passkey/MFA, secure recovery, alerts for new devices |
+| Owner-account takeover | Attacker gains full control | Strong unique password, login lockout, single-use recovery, session/device revocation |
 | Customer-data leakage | Logs contain phone numbers | Redaction, restricted exports, no PII in analytics/error logs |
 | Malicious input | Notes contain script/CSV formulas | Server validation, output encoding, export escaping, CSP |
 | Session/CSRF attack | Forged state-changing request | Secure SameSite cookies, CSRF defense, origin checks |
@@ -1235,10 +1243,10 @@ It does not initially include polished dashboards, receiving, offline sync, cust
 
 ### ADR-008: Framework, identity provider and hosting provider
 
-**Status:** Accepted and locked by the business owner on 21 July 2026.  
-**Decision:** Next.js and TypeScript modular monolith on the Node.js Active LTS runtime, WorkOS AuthKit, and the existing Railway Pro workspace with the application and PostgreSQL colocated in Singapore.  
+**Status:** Identity decision revised by the business owner on 29 July 2026; framework and hosting remain accepted.
+**Decision:** Next.js and TypeScript modular monolith on the Node.js Active LTS runtime, private application-managed email/password authentication, and the existing Railway Pro workspace with the application and PostgreSQL colocated in Singapore.
 **Full evaluation:** `TECHNOLOGY_EVALUATION_ADR.md`.  
-**Reason:** the bundle provides one PWA/backend codebase, managed identity with MFA and step-up authentication, conventional PostgreSQL transactions over private networking, point-in-time recovery, an existing paid production plan and practical vendor exit paths.  
+**Reason:** the bundle provides one PWA/backend codebase, a narrow internal-user access model with revocable sessions, conventional PostgreSQL transactions over private networking, point-in-time recovery, an existing paid production plan and practical exit paths.
 **Constraint:** the walking skeleton must prove latency, authorization, transactions, PITR restoration and Railway cost before business-feature implementation.
 
 ---

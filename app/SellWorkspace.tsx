@@ -1112,6 +1112,7 @@ export default function SellWorkspace({
           <Link href="/inventory">Inventory</Link>
           <Link href="/activity">Activity</Link>
           {role === "BUSINESS_OWNER" && <Link href="/team">Team</Link>}
+          <Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">{roleLabel(role)}</span>
       </header>

@@ -2,23 +2,26 @@
 
 ## Non-production deployment gate
 
-Use a separate Railway staging environment, PostgreSQL service and WorkOS staging environment. Use only synthetic data.
+Use a separate Railway staging environment and PostgreSQL service. Use only synthetic data.
 
 Use [the Railway staging deployment guide](./docs/RAILWAY_DEPLOYMENT.md) for
 the exact service variables and first-deployment sequence.
 
-1. In WorkOS staging, configure the exact callback URL `https://<staging-domain>/auth/callback` and logout URL. Keep unrestricted application access disabled.
-2. In Railway, place the application and PostgreSQL service in Singapore. Use the PostgreSQL private-network URL between services.
-3. Generate different strong passwords for `itsmytoy_migrator` and `itsmytoy_runtime`.
-4. Supply the PostgreSQL service’s administrative URL only to a controlled one-off role-setup job. Run `npm run db:roles`.
-5. Construct `MIGRATION_DATABASE_URL` for the migration role and run `npm run db:migrate` as a deployment job.
-6. Supply only the restricted `DATABASE_URL`, WorkOS staging values and `DATABASE_POOL_MAX=10` to the application service.
+1. In Railway, place the application and PostgreSQL service in Singapore. Use the PostgreSQL private-network URL between services.
+2. Generate different strong passwords for `itsmytoy_migrator` and `itsmytoy_runtime`.
+3. Supply the PostgreSQL service’s administrative URL only to a controlled one-off role-setup job. Run `npm run db:roles`.
+4. Construct `MIGRATION_DATABASE_URL` for the migration role and run `npm run db:migrate` as a deployment job.
+5. Supply only the restricted `DATABASE_URL` and `DATABASE_POOL_MAX=10` to the running application service.
+6. Create the owner’s one-time password link with `npm run auth:create-setup-link -- owner@example.com`.
 7. Deploy and verify `/api/v1/health/live` and `/api/v1/health/ready` return HTTP 200 with an `x-request-id` header.
-8. Sign in as an unapproved WorkOS account and confirm `/api/v1/me` returns 403. Provision the intended staging owner, then confirm it returns the internal `BUSINESS_OWNER` role.
+8. Confirm an unknown email cannot sign in and the intended owner returns the internal `BUSINESS_OWNER` role.
 9. Confirm a store operator receives 403 from `/api/v1/owner/proof` while the owner receives 200.
 10. Send the same valid `POST /api/v1/proofs` request repeatedly with one UUID `Idempotency-Key`; confirm every response is identical and the database contains one command row.
 
-For the local staging operator check, run `npm run security:prove-operator-denial`. It creates a temporary synthetic WorkOS user, completes required TOTP MFA, maps the user as `STORE_OPERATOR`, verifies ordinary access and owner denial, then revokes the session and removes both user records.
+For the local staging access check, run
+`npm run security:prove-operator-denial` with explicit test database URLs. It
+proves one-time activation, runtime-role restrictions, operator controls,
+session revocation on disable and owner-account protection.
 
 Do not import the workbook or real customer details during this gate.
 

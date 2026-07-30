@@ -42,8 +42,8 @@ async function responseBody<T>(response: Response): Promise<T> {
   return body;
 }
 
-async function copySignInLink() {
-  await navigator.clipboard.writeText(`${window.location.origin}/sign-in`);
+async function copySetupLink(setupPath: string) {
+  await navigator.clipboard.writeText(`${window.location.origin}${setupPath}`);
 }
 
 export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
@@ -57,6 +57,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [latestSetupPath, setLatestSetupPath] = useState("");
 
   async function invite(event: FormEvent) {
     event.preventDefault();
@@ -75,11 +76,8 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
       setEmail("");
       setDisplayName("");
       setRole("STORE_OPERATOR");
-      setMessage(
-        body.invitation.deliveryStatus === "SENT"
-          ? `Invitation sent to ${body.invitation.email}.`
-          : `${body.invitation.email} is pre-approved. Email delivery needs attention.`,
-      );
+      setLatestSetupPath(body.invitation.setupPath ?? "");
+      setMessage(`Setup link created for ${body.invitation.email}. Copy and share it privately.`);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Invitation failed.");
     } finally {
@@ -116,10 +114,28 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             item.id === invitation.id ? body.invitation! : item
           )
         );
-        setMessage(`Invitation email sent again to ${invitation.email}.`);
+        setLatestSetupPath(body.invitation.setupPath ?? "");
+        setMessage(`A new setup link was created for ${invitation.email}.`);
       }
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Action failed.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function createPasswordSetup(member: TeamMember) {
+    setBusyId(member.id);
+    setMessage("");
+    setError("");
+    try {
+      const body = await responseBody<{ setupPath: string }>(
+        await fetch(`/api/v1/team/members/${member.id}`, { method: "POST" }),
+      );
+      setLatestSetupPath(body.setupPath);
+      setMessage(`A new password setup link was created for ${member.displayName}.`);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Link creation failed.");
     } finally {
       setBusyId("");
     }
@@ -189,14 +205,26 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
         <p className="eyebrow">Owner control</p>
         <h1 id="team-access-heading">Team &amp; Access</h1>
         <p>
-          Invite the exact Google email a person will use. Their account activates
-          automatically after the invitation is accepted and they sign in.
+          Create access for a team member, then share their one-time password
+          setup link privately.
         </p>
       </div>
 
       {(message || error) && (
         <div className={error ? "team-notice error" : "team-notice"} role="status">
           {error || message}
+          {latestSetupPath && !error && (
+            <button
+              type="button"
+              onClick={() => {
+                copySetupLink(latestSetupPath)
+                  .then(() => setMessage("Setup link copied."))
+                  .catch(() => setError("Could not copy the setup link."));
+              }}
+            >
+              Copy setup link
+            </button>
+          )}
         </div>
       )}
 
@@ -210,7 +238,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
         </div>
         <form className="team-invite-form" onSubmit={invite}>
           <label>
-            Google email
+            Email
             <input
               type="email"
               value={email}
@@ -241,7 +269,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             </select>
           </label>
           <button className="button" disabled={submitting}>
-            {submitting ? "Sending…" : "Send invitation"}
+            {submitting ? "Creating…" : "Create access link"}
           </button>
         </form>
         <div className="role-explainer">
@@ -278,32 +306,36 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
                 </div>
                 <span
                   className={
-                    invitation.deliveryStatus === "SENT"
+                    invitation.deliveryStatus === "SETUP_LINK_READY"
                       ? "access-pill active"
                       : "access-pill waiting"
                   }
                 >
-                  {invitation.deliveryStatus === "SENT"
-                    ? "Email sent"
-                    : "Email needs attention"}
+                  {invitation.deliveryStatus === "SETUP_LINK_READY"
+                    ? "Link ready"
+                    : "Setup pending"}
                 </span>
                 <div className="team-actions">
                   <button
                     type="button"
                     onClick={() => {
-                      copySignInLink()
-                        .then(() => setMessage("Sign-in link copied."))
-                        .catch(() => setError("Could not copy the sign-in link."));
+                      if (invitation.setupPath) {
+                        copySetupLink(invitation.setupPath)
+                          .then(() => setMessage("Setup link copied."))
+                          .catch(() => setError("Could not copy the setup link."));
+                      } else {
+                        invitationAction(invitation, "RESEND");
+                      }
                     }}
                   >
-                    Copy link
+                    {invitation.setupPath ? "Copy link" : "Create link"}
                   </button>
                   <button
                     type="button"
                     disabled={busyId === invitation.id}
                     onClick={() => invitationAction(invitation, "RESEND")}
                   >
-                    Send again
+                    Replace link
                   </button>
                   <button
                     className="danger-link"
@@ -359,6 +391,13 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
                   </label>
                 )}
                 <div className="team-actions">
+                  <button
+                    type="button"
+                    disabled={busyId === member.id}
+                    onClick={() => createPasswordSetup(member)}
+                  >
+                    {member.passwordConfigured ? "Reset password" : "Set password"}
+                  </button>
                   {isOwner ? (
                     <span className="owner-protected">Protected account</span>
                   ) : (

@@ -32,23 +32,21 @@ describeWithDatabase("workbook validation persistence", () => {
     );
     const users = await migrationPool.query<{
       id: string;
-      workos_user_id: string;
       display_name: string;
       role: CurrentUser["role"];
     }>(
       `INSERT INTO app_users (
-         business_id, workos_user_id, display_name, role, status
+         business_id, display_name, role, status
        )
        VALUES
-         ($1, $2, 'Import Owner', 'BUSINESS_OWNER', 'ACTIVE'),
-         ($1, $3, 'Import Operator', 'STORE_OPERATOR', 'ACTIVE')
-       RETURNING id, workos_user_id, display_name, role`,
-      [business.rows[0].id, `import-owner-${randomUUID()}`, `import-operator-${randomUUID()}`],
+         ($1, 'Import Owner', 'BUSINESS_OWNER', 'ACTIVE'),
+         ($1, 'Import Operator', 'STORE_OPERATOR', 'ACTIVE')
+       RETURNING id, display_name, role`,
+      [business.rows[0].id],
     );
     owner = {
       id: users.rows[0].id,
       businessId: business.rows[0].id,
-      workosUserId: users.rows[0].workos_user_id,
       email: null,
       displayName: users.rows[0].display_name,
       role: users.rows[0].role,
@@ -56,7 +54,6 @@ describeWithDatabase("workbook validation persistence", () => {
     operator = {
       id: users.rows[1].id,
       businessId: business.rows[0].id,
-      workosUserId: users.rows[1].workos_user_id,
       email: null,
       displayName: users.rows[1].display_name,
       role: users.rows[1].role,

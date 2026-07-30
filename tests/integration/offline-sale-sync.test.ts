@@ -32,20 +32,18 @@ describeWithDatabase("queued offline sale synchronization", () => {
     locationId = location.rows[0].id;
     const actor = await migrationPool.query<{ id: string }>(
       `INSERT INTO app_users (
-         business_id, workos_user_id, email, display_name, role, status
+         business_id, email, display_name, role, status
        )
-       VALUES ($1, $2, $3, 'Offline Operator', 'STORE_OPERATOR', 'ACTIVE')
+       VALUES ($1, $2, 'Offline Operator', 'STORE_OPERATOR', 'ACTIVE')
        RETURNING id`,
       [
         business.rows[0].id,
-        `offline-sale-${suffix}`,
         `offline-sale-${suffix}@example.com`,
       ],
     );
     user = {
       id: actor.rows[0].id,
       businessId: business.rows[0].id,
-      workosUserId: `offline-sale-${suffix}`,
       email: `offline-sale-${suffix}@example.com`,
       displayName: "Offline Operator",
       role: "STORE_OPERATOR",
@@ -97,11 +95,11 @@ describeWithDatabase("queued offline sale synchronization", () => {
       [
         (await migrationPool.query<{ id: string }>(
           `INSERT INTO app_users (
-             business_id, workos_user_id, display_name, role, status
+             business_id, display_name, role, status
            )
-           VALUES ($1, $2, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE')
+           VALUES ($1, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE')
            RETURNING id`,
-          [user.businessId, `offline-owner-${suffix}`],
+          [user.businessId],
         )).rows[0].id,
         deviceId,
       ],

@@ -2,11 +2,17 @@
 
 ## Enforced in the walking skeleton
 
-- WorkOS handles the hosted identity session; internal access still requires a
-  verified email with an active user or pending application invitation.
-- On an empty installation, the first verified WorkOS user becomes owner under
-  a database lock. Once any application user or pending invitation exists,
-  later access requires the owner-only Team & Access screen.
+- Passwords are hashed with Node.js `scrypt` and a unique random salt. Plaintext
+  passwords are never stored.
+- Sessions use random opaque cookies; only SHA-256 token digests are stored in
+  PostgreSQL. Cookies are HttpOnly, SameSite=Lax and Secure in production.
+- There is no public registration. Owner and operator activation requires a
+  single-use, expiring setup token.
+- Five failed sign-in attempts lock the account for 15 minutes. Authentication
+  errors do not reveal whether an email exists.
+- Authentication redirects remain on the incoming browser origin, and return
+  paths reject external, protocol-relative, backslash and control-character
+  forms.
 - The runtime database role cannot insert or update users directly. It receives
   execute permission only on narrow security-definer functions for claiming an
   invitation, inviting an operator, changing operator access and revoking an
@@ -66,8 +72,7 @@
 - Idempotency keys are UUIDs and are bound to both the actor and request content.
 - Logs redact keys that look like credentials, cookies, authorization values, secrets or tokens.
 - Responses use no-store caching and baseline browser security headers.
-- WorkOS staging now requires MFA for non-SSO users and does not allow public self-sign-up.
-- Live staging checks passed for Google sign-in, MFA, session revocation, owner authorization and store-operator denial.
+- Disabling a member revokes every active server session for that user.
 - Workbook validation is owner-only, hash-bound and append-only for the runtime
   role. It stores source coordinates, normalized rows and exceptions without
   granting any live product, customer, sale or stock import capability.
@@ -79,7 +84,6 @@
 
 ## Open external proofs before business-feature work
 
-- WorkOS provider-outage and failed-provider behavior still require a controlled staging exercise.
 - Railway staging deployment, Singapore colocation, private networking, PITR restore and seven-day cost evidence require a valid Railway login and project access.
 - High and critical production advisories fail CI. Until the latest stable
   Next.js package repins its transitive PostCSS and Sharp dependencies, the

@@ -34,7 +34,14 @@ export default function PwaControls() {
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw.js");
+      if (process.env.NODE_ENV === "production") {
+        void navigator.serviceWorker.register("/sw.js");
+      } else {
+        void navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(
+            registrations.map((registration) => registration.unregister()),
+          ));
+      }
     }
 
     const handleInstallPrompt = (event: Event) => {

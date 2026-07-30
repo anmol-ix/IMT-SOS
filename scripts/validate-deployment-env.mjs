@@ -8,23 +8,10 @@ const postgresUrl = z
     "must be a PostgreSQL connection URL",
   );
 
-const redirectUri = z
-  .string()
-  .url()
-  .refine((value) => new URL(value).protocol === "https:", "must use HTTPS")
-  .refine(
-    (value) => new URL(value).pathname === "/auth/callback",
-    "must end with /auth/callback",
-  );
-
 const deploymentSchema = z
   .object({
     DATABASE_URL: postgresUrl,
     MIGRATION_DATABASE_URL: postgresUrl,
-    WORKOS_API_KEY: z.string().trim().min(1),
-    WORKOS_CLIENT_ID: z.string().trim().min(1),
-    WORKOS_COOKIE_PASSWORD: z.string().min(32),
-    WORKOS_REDIRECT_URI: redirectUri,
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(30).default(10),
     DEPLOY_BOOTSTRAP_DATABASE_ROLES: z.enum(["0", "1"]).default("0"),
     DATABASE_ADMIN_URL: postgresUrl.optional(),

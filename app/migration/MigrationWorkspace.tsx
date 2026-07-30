@@ -89,6 +89,7 @@ export default function MigrationWorkspace({
           <Link href="/activity">Activity</Link>
           <Link className="active" href="/migration">Migration</Link>
           <Link href="/team">Team</Link>
+          <Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">Business owner</span>
       </header>

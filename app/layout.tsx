@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
 import PwaControls from "./PwaControls";
 import "./globals.css";
 
@@ -34,10 +33,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <AuthKitProvider>
-          {children}
-          <PwaControls />
-        </AuthKitProvider>
+        {children}
+        <PwaControls />
       </body>
     </html>
   );

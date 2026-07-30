@@ -21,11 +21,11 @@ describeWithDatabase("offline catalogue database query", () => {
     businessId = business.rows[0].id;
     const user = await migrationPool.query<{ id: string }>(
       `INSERT INTO app_users (
-         business_id, workos_user_id, display_name, role, status
+         business_id, display_name, role, status
        )
-       VALUES ($1, $2, 'Catalogue Owner', 'BUSINESS_OWNER', 'ACTIVE')
+       VALUES ($1, 'Catalogue Owner', 'BUSINESS_OWNER', 'ACTIVE')
        RETURNING id`,
-      [businessId, `catalogue-${suffix}`],
+      [businessId],
     );
     const location = await migrationPool.query<{ id: string }>(
       `INSERT INTO locations (business_id, name)

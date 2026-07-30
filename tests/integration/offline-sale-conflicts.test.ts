@@ -34,28 +34,22 @@ describeWithDatabase("offline-sale owner conflict resolution", () => {
     locationId = location.rows[0].id;
     const users = await migrationPool.query<{
       id: string;
-      workos_user_id: string;
       display_name: string;
       role: CurrentUser["role"];
     }>(
       `INSERT INTO app_users (
-         business_id, workos_user_id, display_name, role, status
+         business_id, display_name, role, status
        )
        VALUES
-         ($1, $2, 'Offline Operator', 'STORE_OPERATOR', 'ACTIVE'),
-         ($1, $3, 'Offline Owner', 'BUSINESS_OWNER', 'ACTIVE')
-       RETURNING id, workos_user_id, display_name, role`,
-      [
-        business.rows[0].id,
-        `conflict-operator-${suffix}`,
-        `conflict-owner-${suffix}`,
-      ],
+         ($1, 'Offline Operator', 'STORE_OPERATOR', 'ACTIVE'),
+         ($1, 'Offline Owner', 'BUSINESS_OWNER', 'ACTIVE')
+       RETURNING id, display_name, role`,
+      [business.rows[0].id],
     );
     const [operatorRow, ownerRow] = users.rows;
     operator = {
       id: operatorRow.id,
       businessId: business.rows[0].id,
-      workosUserId: operatorRow.workos_user_id,
       email: null,
       displayName: operatorRow.display_name,
       role: operatorRow.role,
@@ -63,7 +57,6 @@ describeWithDatabase("offline-sale owner conflict resolution", () => {
     owner = {
       id: ownerRow.id,
       businessId: business.rows[0].id,
-      workosUserId: ownerRow.workos_user_id,
       email: null,
       displayName: ownerRow.display_name,
       role: ownerRow.role,

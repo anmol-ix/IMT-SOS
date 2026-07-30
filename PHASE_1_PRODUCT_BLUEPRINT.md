@@ -8,6 +8,10 @@
 
 ---
 
+> **Implementation update (29 July 2026):** WorkOS was removed from the
+> application. Authentication is now private email/password access for this
+> internal tool, with owner-issued one-time setup links and revocable sessions.
+
 ## 0. Business and current-state context
 
 ### Business
@@ -635,7 +639,7 @@ Usability findings may improve wording, layout and guidance. A finding that chan
 
 ## 16. Engineering handoff and next step
 
-The production engineering foundation is defined in `ENGINEERING_FOUNDATION_SPEC.md`. Approved owner policies are recorded in `BUSINESS_DECISIONS.md`, and the accepted Next.js/Node.js, WorkOS, Railway Pro and PostgreSQL technology selection is recorded in `TECHNOLOGY_EVALUATION_ADR.md`. Together, those documents govern system architecture, database design, security, transactions, offline synchronization, TDD, performance, recovery, migration and business authority.
+The production engineering foundation is defined in `ENGINEERING_FOUNDATION_SPEC.md`. Approved owner policies are recorded in `BUSINESS_DECISIONS.md`, and the accepted Next.js/Node.js, internal authentication, Railway Pro and PostgreSQL technology selection is recorded in `TECHNOLOGY_EVALUATION_ADR.md`. Together, those documents govern system architecture, database design, security, transactions, offline synchronization, TDD, performance, recovery, migration and business authority.
 
 Before creating a production repository:
 

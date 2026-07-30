@@ -151,6 +151,7 @@ export default async function ActivityPage({
           <Link href="/inventory">Inventory</Link>
           <Link className="active" href="/activity">Activity</Link>
           {user.role === "BUSINESS_OWNER" && <Link href="/team">Team</Link>}
+          <Link href="/sign-out">Sign out</Link>
         </nav>
         <span className="role-chip">{roleLabel}</span>
       </header>

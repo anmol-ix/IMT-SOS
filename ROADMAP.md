@@ -1,12 +1,12 @@
 # ItsMyToy Local Product Roadmap
 
-Last verified: 28 July 2026
+Last verified: 30 July 2026
 
 Status means implemented and locally verified, not only designed.
 
 ## M0 — Engineering foundation — Complete
 
-- Authentication, MFA and individual roles
+- Private email/password authentication, revocable sessions and individual roles
 - PostgreSQL migrations and restricted runtime identity
 - Versioned API, atomic transactions, idempotency and audit events
 - Local lint, type, unit, production-build and authenticated acceptance checks
@@ -160,7 +160,7 @@ opening movements or customer/sale import.
 ## M6 — Railway staging validation — Next safety gate
 
 The application can now be deployed safely with synthetic staging data. Private
-database connectivity, WorkOS callback, owner access, latency, PITR restore and
+database connectivity, internal owner login, latency, PITR restore and
 seven-day cost evidence must still pass before real business data are considered.
 
 ## Later phase
