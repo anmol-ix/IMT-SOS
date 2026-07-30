@@ -993,7 +993,7 @@ textarea {
 .inventory-toolbar {
   @include surface;
   display: grid;
-  grid-template-columns: minmax(15rem, 1fr) minmax(10rem, 0.35fr) auto auto;
+  grid-template-columns: minmax(15rem, 1fr) minmax(10rem, 0.35fr) auto;
   gap: var(--space-3);
   align-items: end;
   padding: var(--space-3);
@@ -1013,6 +1013,34 @@ textarea {
   select,
   button {
     min-height: var(--control-md);
+  }
+}
+
+.inventory-label-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+
+  > span {
+    display: grid;
+    min-width: 7.5rem;
+
+    strong {
+      color: var(--text-primary);
+      font-size: 0.875rem;
+    }
+
+    small {
+      color: var(--text-tertiary);
+      font-size: 0.5625rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+  }
+
+  .text-button {
+    min-height: var(--control-md);
+    padding-inline: var(--space-2);
   }
 }
 
@@ -2417,8 +2445,13 @@ textarea {
   .inventory-toolbar {
     grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.4fr);
 
-    button {
+    > button {
       width: 100%;
+    }
+
+    .inventory-label-actions {
+      grid-column: 1 / -1;
+      justify-content: flex-end;
     }
   }
 
@@ -2751,8 +2784,18 @@ textarea {
       grid-column: 1 / -1;
     }
 
-    > button:last-child {
+    .inventory-label-actions {
       grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+
+      > span {
+        grid-column: 1 / -1;
+      }
+
+      .button:last-child {
+        min-width: 8rem;
+      }
     }
   }
 

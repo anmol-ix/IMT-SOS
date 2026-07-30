@@ -67,6 +67,8 @@ Complete:
 - Mandatory controlled change reason, immutable before/after audit evidence and
   automatic expiry of pending approvals tied to the replaced price version
 - Product-level movement history with sale, receipt and adjustment references
+- Selectable SKU label export with product name, barcode, variant, MRP, selling
+  price and rack in a safe CSV for external label software
 - Current-balance versus append-only-ledger reconciliation by stock condition
 - Trusted-operator and owner physical counts captured against the exact recorded
   balance version, with no stock effect while approval is pending

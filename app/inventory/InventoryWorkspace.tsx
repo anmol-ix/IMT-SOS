@@ -295,6 +295,9 @@ export default function InventoryWorkspace({
       return matchesSearch && matchesFilter;
     });
   }, [filter, products, query]);
+  const selectedShownCount = filteredProducts.filter(
+    (product) => selectedLabels.includes(product.id),
+  ).length;
 
   const inventorySummary = useMemo(() => ({
     units: products.reduce((sum, product) => sum + product.stock, 0),
@@ -558,22 +561,44 @@ export default function InventoryWorkspace({
               <option value="MISSING_RACK">Rack missing</option>
             </select>
           </label>
-          <button
-            className="button secondary"
-            type="button"
-            onClick={() => setSelectedLabels(filteredProducts.map((product) => product.id))}
-            disabled={!filteredProducts.length}
-          >
-            Select shown
-          </button>
-          <button
-            className="button"
-            type="button"
-            onClick={exportLabels}
-            disabled={!selectedLabels.length}
-          >
-            Export labels CSV{selectedLabels.length ? ` (${selectedLabels.length})` : ""}
-          </button>
+          <div className="inventory-label-actions" aria-label="Label CSV selection">
+            <span aria-live="polite">
+              <strong>{selectedLabels.length}</strong>
+              <small>SKUs selected for labels</small>
+            </span>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => setSelectedLabels((current) => [
+                ...new Set([
+                  ...current,
+                  ...filteredProducts.map((product) => product.id),
+                ]),
+              ])}
+              disabled={
+                !filteredProducts.length
+                || selectedShownCount === filteredProducts.length
+              }
+            >
+              Add shown
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => setSelectedLabels([])}
+              disabled={!selectedLabels.length}
+            >
+              Clear
+            </button>
+            <button
+              className="button"
+              type="button"
+              onClick={exportLabels}
+              disabled={!selectedLabels.length}
+            >
+              Download CSV
+            </button>
+          </div>
         </section>
 
         <div className="inventory-layout inventory-command-center">

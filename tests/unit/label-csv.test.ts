@@ -16,4 +16,18 @@ describe("buildLabelCsv", () => {
     expect(csv).toContain('"SKU","Barcode","Product Name"');
     expect(csv).toContain('"Car, Remote","Blue","599.00","499.00","L1-S2"');
   });
+
+  it("prevents spreadsheet formulas from running when a CSV is opened", () => {
+    const csv = buildLabelCsv([{
+      sku: "=1+1",
+      barcode: "@scan",
+      productName: "+Product",
+      variantName: "-Blue",
+      mrpPaise: 59900,
+      standardPricePaise: 49900,
+      rackLocation: null,
+    }]);
+
+    expect(csv).toContain(`"'=1+1","'@scan","'+Product","'-Blue"`);
+  });
 });
