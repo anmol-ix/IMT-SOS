@@ -12,6 +12,7 @@ type IconName =
   | "activity"
   | "approvals"
   | "closing"
+  | "customers"
   | "dashboard"
   | "inventory"
   | "insights"
@@ -34,6 +35,7 @@ const navigation: NavItem[] = [
   { href: "/dashboard", label: "Home", icon: "dashboard", ownerOnly: true, group: "Daily work" },
   { href: "/", label: "Sell", icon: "sell", group: "Daily work" },
   { href: "/inventory", label: "Inventory", icon: "inventory", group: "Daily work" },
+  { href: "/customers", label: "Customers", icon: "customers", group: "Daily work" },
   { href: "/receive", label: "Receive stock", icon: "receive", operatorOnly: true, group: "Daily work" },
   { href: "/activity", label: "History", icon: "activity", group: "Daily work" },
   { href: "/approvals", label: "Needs approval", icon: "approvals", ownerOnly: true, group: "Control" },
@@ -48,6 +50,7 @@ function Icon({ name }: { name: IconName }) {
     sell: <><path d="M3 6h18l-2 9H6L3 3H1" /><path d="M8 20h.01M17 20h.01" /></>,
     receive: <><path d="M12 3v12m0 0 4-4m-4 4-4-4" /><path d="M4 18v2h16v-2" /></>,
     inventory: <><path d="m4 7 8-4 8 4-8 4z" /><path d="m4 7v10l8 4 8-4V7M12 11v10" /></>,
+    customers: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
     insights: <><path d="M4 19V9M10 19V5M16 19v-7M22 19V3" /><path d="M2 19h22" /></>,
     activity: <><path d="M3 12h4l2-5 4 10 2-5h6" /></>,
     approvals: <><path d="M9 11l2 2 4-5" /><path d="M12 3 4 6v5c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z" /></>,
@@ -103,7 +106,7 @@ export default function AppShell({
   const items = visibleNavigation(role);
   const current = items.find((item) => isActive(pathname, item.href)) ?? items[0];
   const mobilePrimary = items
-    .filter((item) => ["dashboard", "sell", "receive", "inventory", "activity"].includes(item.icon))
+    .filter((item) => ["dashboard", "sell", "receive", "inventory", "customers"].includes(item.icon))
     .slice(0, 4);
   const mobileMore = items.filter((item) => !mobilePrimary.includes(item));
   const initials = displayName

@@ -26,6 +26,8 @@ Complete:
 - Owner-direct below-floor sale with mandatory controlled reason
 - Customer master with normalized-phone duplicate prevention and name/phone lookup
 - Sale-linked customer snapshot and purchase history summary
+- Dedicated customer workspace with name, phone and locality search, derived
+  Retail/Wholesale buying pattern, lifetime totals and sale-by-sale purchase history
 - ₹5,000 customer-information prompt enforced by the server
 - Customer-declined Guest flow with exact-cart owner approval, 30-minute expiry,
   one-time consumption and recorded refusal without invented customer data
