@@ -95,6 +95,9 @@ Complete:
   explanations for cash movements or any variance
 - Immutable, idempotent closing records and linked correction revisions
 - Automatic `Needs reconciliation` status when sales complete after a closing
+- Owner-only business insights with today and month-to-date performance,
+  same-period month comparison, honest YoY availability, six-month sales trend,
+  Retail/Wholesale contribution, top sellers and 60-day slow-stock review
 
 ## M3.5 — Railway deployment readiness — Complete
 

@@ -14,6 +14,7 @@ type IconName =
   | "closing"
   | "dashboard"
   | "inventory"
+  | "insights"
   | "logout"
   | "menu"
   | "receive"
@@ -36,6 +37,7 @@ const navigation: NavItem[] = [
   { href: "/receive", label: "Receive stock", icon: "receive", operatorOnly: true, group: "Daily work" },
   { href: "/activity", label: "History", icon: "activity", group: "Daily work" },
   { href: "/approvals", label: "Needs approval", icon: "approvals", ownerOnly: true, group: "Control" },
+  { href: "/insights", label: "Insights", icon: "insights", ownerOnly: true, group: "Control" },
   { href: "/closing", label: "Daily closing", icon: "closing", ownerOnly: true, group: "Control" },
   { href: "/team", label: "Team & access", icon: "team", ownerOnly: true, group: "Control" },
 ];
@@ -46,6 +48,7 @@ function Icon({ name }: { name: IconName }) {
     sell: <><path d="M3 6h18l-2 9H6L3 3H1" /><path d="M8 20h.01M17 20h.01" /></>,
     receive: <><path d="M12 3v12m0 0 4-4m-4 4-4-4" /><path d="M4 18v2h16v-2" /></>,
     inventory: <><path d="m4 7 8-4 8 4-8 4z" /><path d="m4 7v10l8 4 8-4V7M12 11v10" /></>,
+    insights: <><path d="M4 19V9M10 19V5M16 19v-7M22 19V3" /><path d="M2 19h22" /></>,
     activity: <><path d="M3 12h4l2-5 4 10 2-5h6" /></>,
     approvals: <><path d="M9 11l2 2 4-5" /><path d="M12 3 4 6v5c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z" /></>,
     closing: <><path d="M5 3h14v18H5z" /><path d="M8 7h8M8 11h8M8 15h5" /></>,

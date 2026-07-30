@@ -1099,6 +1099,279 @@ textarea {
   }
 }
 
+.insights-page {
+  gap: var(--space-4);
+}
+
+.insight-scorecard {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.insight-kpi {
+  @include surface;
+  display: grid;
+  min-height: 8rem;
+  gap: var(--space-1);
+  align-content: start;
+  padding: var(--space-4);
+
+  &.primary {
+    border-top: 3px solid var(--brand-500);
+  }
+
+  > small {
+    color: var(--text-tertiary);
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+
+  > strong {
+    color: var(--text-primary);
+    font-size: clamp(1.25rem, 1.8vw, 1.75rem);
+  }
+
+  > span,
+  > em {
+    color: var(--text-secondary);
+    font-size: 0.6875rem;
+    font-style: normal;
+  }
+}
+
+.insight-change {
+  width: fit-content;
+  margin-top: var(--space-1);
+  border-radius: var(--radius-full);
+  padding: 0.1875rem 0.4375rem;
+  font-weight: 700;
+
+  &.up {
+    background: var(--success-50);
+    color: var(--success-700);
+  }
+
+  &.down {
+    background: var(--danger-50);
+    color: var(--danger-700);
+  }
+
+  &.neutral {
+    background: var(--gray-100);
+    color: var(--text-tertiary);
+  }
+}
+
+.insights-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(19rem, 0.75fr);
+  gap: var(--space-3);
+}
+
+.insight-panel {
+  @include surface;
+  min-width: 0;
+  padding: var(--space-4);
+
+  .section-title {
+    align-items: flex-start;
+    margin-bottom: var(--space-3);
+  }
+
+  .section-title h2 {
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+  }
+
+  .section-title p {
+    margin: 0.125rem 0 0;
+    color: var(--text-tertiary);
+    font-size: 0.6875rem;
+  }
+}
+
+.sales-trend {
+  display: grid;
+  height: 10.5rem;
+  grid-template-columns: repeat(6, minmax(3.5rem, 1fr));
+  gap: var(--space-2);
+  align-items: end;
+
+  article {
+    display: grid;
+    min-width: 0;
+    gap: 0.1875rem;
+    text-align: center;
+  }
+
+  strong,
+  small,
+  .trend-amount {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 0.75rem;
+  }
+
+  small,
+  .trend-amount {
+    color: var(--text-tertiary);
+    font-size: 0.625rem;
+  }
+}
+
+.trend-track {
+  position: relative;
+  height: 6rem;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--gray-100);
+}
+
+.trend-bar {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: var(--trend-height);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: linear-gradient(180deg, var(--brand-400), var(--brand-600));
+}
+
+.channel-list {
+  display: grid;
+  gap: var(--space-4);
+
+  article {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+  }
+
+  article > div:first-child {
+    display: grid;
+    gap: 0.125rem;
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 0.8125rem;
+  }
+
+  span,
+  small {
+    color: var(--text-tertiary);
+    font-size: 0.625rem;
+  }
+}
+
+.channel-share {
+  grid-column: 1 / -1;
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--gray-100);
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--brand-500);
+  }
+}
+
+.insight-ranking {
+  display: grid;
+
+  a {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    gap: var(--space-3);
+    align-items: center;
+    border-top: 1px solid var(--border-subtle);
+    padding: 0.625rem 0;
+    color: inherit;
+  }
+
+  a:first-child {
+    border-top: 0;
+  }
+
+  a > span:not(.rank) {
+    display: grid;
+    min-width: 0;
+    gap: 0.125rem;
+  }
+
+  strong,
+  small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 0.75rem;
+  }
+
+  small {
+    color: var(--text-tertiary);
+    font-size: 0.625rem;
+  }
+
+  &.compact a {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+.rank {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: 0.6875rem;
+  font-weight: 800;
+}
+
+.ranking-money {
+  text-align: right;
+}
+
+.stock-insight-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+
+  span {
+    display: grid;
+    gap: 0.125rem;
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    background: var(--surface-subtle);
+  }
+
+  small {
+    color: var(--text-tertiary);
+    font-size: 0.625rem;
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-size: 0.875rem;
+  }
+}
+
 .action-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
@@ -1400,8 +1673,13 @@ textarea {
   }
 
   .dashboard-metrics,
+  .insight-scorecard,
   .action-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .insights-layout {
+    grid-template-columns: 1fr;
   }
 
   .activity-card {
@@ -1433,6 +1711,7 @@ textarea {
   .sell-page,
   .inventory-page,
   .dashboard-page,
+  .insights-page,
   .activity-page,
   .closing-page,
   .team-page,
@@ -1786,6 +2065,7 @@ textarea {
   }
 
   .dashboard-metrics,
+  .insight-scorecard,
   .action-grid {
     display: flex;
     gap: var(--space-3);
@@ -1796,6 +2076,40 @@ textarea {
       min-width: min(78vw, 18rem);
       scroll-snap-align: start;
     }
+  }
+
+  .insights-page {
+    gap: var(--space-3);
+  }
+
+  .insight-panel {
+    padding: var(--space-4);
+  }
+
+  .trend-panel {
+    @include scrollbar;
+    overflow-x: auto;
+  }
+
+  .sales-trend {
+    min-width: 31rem;
+  }
+
+  .insight-ranking a {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+  }
+
+  .insight-ranking .ranking-money {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .insight-ranking.compact a {
+    grid-template-columns: 1fr;
+  }
+
+  .insight-ranking.compact .ranking-money {
+    grid-column: 1;
   }
 
   .metric-card,
