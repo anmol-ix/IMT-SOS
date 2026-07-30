@@ -11,6 +11,7 @@ export type SellableProduct = {
   id: string;
   priceVersionId: string;
   name: string;
+  category: string | null;
   variantName: string | null;
   sku: string;
   barcode: string;
@@ -28,13 +29,17 @@ export type SellableProduct = {
   inventoryValuePaise?: number;
   latestLandedCostPaise?: number;
   weightedAverageCostPaise?: number;
+  reorderPoint?: number | null;
+  restockTarget?: number | null;
 };
 
 export const SELLABLE_PRODUCTS_SQL = `
   SELECT
-    v.id, pv.id AS price_version_id, p.name, v.variant_name, v.sku, b.barcodes[1] AS barcode,
+    v.id, pv.id AS price_version_id, p.name, p.category, v.variant_name, v.sku,
+    b.barcodes[1] AS barcode,
     b.barcodes,
-    v.rack_location, ib.quantity_on_hand, pv.mrp_paise, pv.standard_price_paise,
+    v.rack_location, v.reorder_point, v.restock_target,
+    ib.quantity_on_hand, pv.mrp_paise, pv.standard_price_paise,
     GREATEST(
       CASE $2
         WHEN 'BUSINESS_OWNER' THEN pv.owner_floor_paise
@@ -102,11 +107,14 @@ async function loadSellableProducts(
     id: string;
     price_version_id: string;
     name: string;
+    category: string | null;
     variant_name: string | null;
     sku: string;
     barcode: string;
     barcodes: string[];
     rack_location: string | null;
+    reorder_point: number | null;
+    restock_target: number | null;
     quantity_on_hand: number;
     mrp_paise: string;
     standard_price_paise: string;
@@ -127,11 +135,14 @@ async function loadSellableProducts(
     id: row.id,
     priceVersionId: row.price_version_id,
     name: row.name,
+    category: row.category,
     variantName: row.variant_name,
     sku: row.sku,
     barcode: row.barcode,
     barcodes: row.barcodes,
     rackLocation: row.rack_location,
+    reorderPoint: row.reorder_point,
+    restockTarget: row.restock_target,
     stock: row.quantity_on_hand,
     ...(row.open_box_quantity === null || row.damaged_quantity === null
       ? {}
@@ -167,6 +178,12 @@ export function searchSellableProducts(
   query: string,
 ): Promise<SellableProduct[]> {
   return loadSellableProducts(user, query, 12);
+}
+
+export function listInventoryProducts(
+  user: CurrentUser,
+): Promise<SellableProduct[]> {
+  return loadSellableProducts(user, "", 5_000);
 }
 
 export async function getOfflineCatalogSnapshot(

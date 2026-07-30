@@ -16,7 +16,6 @@ type IconName =
   | "inventory"
   | "logout"
   | "menu"
-  | "migration"
   | "receive"
   | "sell"
   | "team";
@@ -27,19 +26,18 @@ type NavItem = {
   icon: IconName;
   ownerOnly?: boolean;
   operatorOnly?: boolean;
-  group?: "Operate" | "Manage";
+  group?: "Daily work" | "Control";
 };
 
 const navigation: NavItem[] = [
-  { href: "/dashboard", label: "Overview", icon: "dashboard", ownerOnly: true, group: "Operate" },
-  { href: "/", label: "Sell", icon: "sell", group: "Operate" },
-  { href: "/receive", label: "Receive", icon: "receive", operatorOnly: true, group: "Operate" },
-  { href: "/inventory", label: "Inventory", icon: "inventory", group: "Operate" },
-  { href: "/activity", label: "Activity", icon: "activity", group: "Operate" },
-  { href: "/approvals", label: "Approvals", icon: "approvals", ownerOnly: true, group: "Manage" },
-  { href: "/closing", label: "Daily closing", icon: "closing", ownerOnly: true, group: "Manage" },
-  { href: "/migration", label: "Data migration", icon: "migration", ownerOnly: true, group: "Manage" },
-  { href: "/team", label: "Team & devices", icon: "team", ownerOnly: true, group: "Manage" },
+  { href: "/dashboard", label: "Home", icon: "dashboard", ownerOnly: true, group: "Daily work" },
+  { href: "/", label: "Sell", icon: "sell", group: "Daily work" },
+  { href: "/inventory", label: "Inventory", icon: "inventory", group: "Daily work" },
+  { href: "/receive", label: "Receive stock", icon: "receive", operatorOnly: true, group: "Daily work" },
+  { href: "/activity", label: "History", icon: "activity", group: "Daily work" },
+  { href: "/approvals", label: "Needs approval", icon: "approvals", ownerOnly: true, group: "Control" },
+  { href: "/closing", label: "Daily closing", icon: "closing", ownerOnly: true, group: "Control" },
+  { href: "/team", label: "Team & access", icon: "team", ownerOnly: true, group: "Control" },
 ];
 
 function Icon({ name }: { name: IconName }) {
@@ -51,7 +49,6 @@ function Icon({ name }: { name: IconName }) {
     activity: <><path d="M3 12h4l2-5 4 10 2-5h6" /></>,
     approvals: <><path d="M9 11l2 2 4-5" /><path d="M12 3 4 6v5c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6z" /></>,
     closing: <><path d="M5 3h14v18H5z" /><path d="M8 7h8M8 11h8M8 15h5" /></>,
-    migration: <><path d="M4 7h12m0 0-3-3m3 3-3 3M20 17H8m0 0 3 3m-3-3 3-3" /></>,
     team: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
     logout: <><path d="M10 17l5-5-5-5M15 12H3" /><path d="M14 3h7v18h-7" /></>,
     menu: <><path d="M5 7h14M5 12h14M5 17h14" /></>,
@@ -120,7 +117,7 @@ export default function AppShell({
           <BrandMark />
         </Link>
         <nav className={styles.nav} aria-label="Primary navigation">
-          {(["Operate", "Manage"] as const).map((group) => {
+          {(["Daily work", "Control"] as const).map((group) => {
             const groupedItems = items.filter((item) => item.group === group);
             if (!groupedItems.length) return null;
             return (
