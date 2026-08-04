@@ -50,12 +50,18 @@ export default async function SalesHistoryPage({
                     {money.format(sale.totalPaise / 100)}
                   </strong>
                 </div>
+                {sale.balanceDuePaise > 0 && (
+                  <p className="sale-due-status">
+                    {money.format(sale.amountPaidPaise / 100)} received ·{" "}
+                    <strong>{money.format(sale.balanceDuePaise / 100)} due</strong>
+                  </p>
+                )}
                 <p className="activity-time">
                   {saleDate.format(new Date(sale.happenedAt))}
                 </p>
                 <div className="activity-facts">
                   <span><strong>{sale.unitCount}</strong> units across {sale.itemCount} products</span>
-                  <span>{sale.paymentModes.join(" + ")}</span>
+                  <span>{sale.paymentModes.length ? sale.paymentModes.join(" + ") : "No payment received"}</span>
                   <span>{sale.customerName}</span>
                 </div>
                 <p className="activity-actor">Sold by <strong>{sale.actorName}</strong></p>

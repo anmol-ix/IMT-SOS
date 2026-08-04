@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import CustomSelect from "@/components/ui/CustomSelect";
 import PageHeader from "@/components/ui/PageHeader";
 import type {
   AccessInvitation,
@@ -262,15 +263,15 @@ export default function TeamWorkspace({ initialTeam, initialDevices, mode = "TEA
           </label>
           <label>
             Access level
-            <select
+            <CustomSelect
               value={role}
-              onChange={(event) =>
-                setRole(event.target.value as AccessInvitation["role"])
-              }
-            >
-              <option value="STORE_OPERATOR">Store operator</option>
-              <option value="TRUSTED_OPERATOR">Trusted operator</option>
-            </select>
+              ariaLabel="Access level"
+              options={[
+                { value: "STORE_OPERATOR", label: "Store operator" },
+                { value: "TRUSTED_OPERATOR", label: "Trusted operator" },
+              ]}
+              onChange={(value) => setRole(value as AccessInvitation["role"])}
+            />
           </label>
           <button className="button" disabled={submitting}>
             {submitting ? "Creating…" : "Create access link"}
@@ -379,19 +380,21 @@ export default function TeamWorkspace({ initialTeam, initialDevices, mode = "TEA
                 ) : (
                   <label className="inline-access-field">
                     <span>Role</span>
-                    <select
+                    <CustomSelect
                       value={member.role}
+                      ariaLabel={`Role for ${member.displayName}`}
                       disabled={busyId === member.id}
-                      onChange={(event) =>
+                      options={[
+                        { value: "STORE_OPERATOR", label: "Store operator" },
+                        { value: "TRUSTED_OPERATOR", label: "Trusted operator" },
+                      ]}
+                      onChange={(value) =>
                         updateMember(member, {
-                          role: event.target.value,
+                          role: value,
                           status: member.status,
                         })
                       }
-                    >
-                      <option value="STORE_OPERATOR">Store operator</option>
-                      <option value="TRUSTED_OPERATOR">Trusted operator</option>
-                    </select>
+                    />
                   </label>
                 )}
                 <div className="team-actions">

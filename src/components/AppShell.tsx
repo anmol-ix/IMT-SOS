@@ -92,6 +92,7 @@ const navigation: NavItem[] = [
     icon: "team",
     ownerOnly: true,
     group: "Manage",
+    matches: ["/settings"],
     children: [
       { href: "/settings/team", label: "Team", icon: "team" },
       { href: "/settings/invitations", label: "Invitations", icon: "customers" },

@@ -15,6 +15,8 @@ export type ActivityItem =
       actorName: string;
       saleNumber: string;
       totalPaise: number;
+      amountPaidPaise: number;
+      balanceDuePaise: number;
       itemCount: number;
       unitCount: number;
       paymentModes: string[];
@@ -54,6 +56,8 @@ async function sales(user: CurrentUser): Promise<ActivityItem[]> {
     id: string;
     sale_number: string;
     total_paise: string;
+    amount_paid_paise: string;
+    balance_due_paise: string;
     completed_at: Date;
     actor_name: string;
     customer_name: string | null;
@@ -64,7 +68,8 @@ async function sales(user: CurrentUser): Promise<ActivityItem[]> {
   }>(
     `WITH recent_sales AS (
        SELECT
-         id, sale_number, total_paise, completed_at, created_by, customer_id,
+         id, sale_number, total_paise, amount_paid_paise, balance_due_paise,
+         completed_at, created_by, customer_id,
          customer_name, guest_approval_id, guest_override_reason
        FROM sales
        WHERE business_id = $1 AND status = 'COMPLETED'
@@ -73,7 +78,8 @@ async function sales(user: CurrentUser): Promise<ActivityItem[]> {
        LIMIT 50
      )
      SELECT
-       s.id, s.sale_number, s.total_paise, s.completed_at,
+       s.id, s.sale_number, s.total_paise, s.amount_paid_paise,
+       s.balance_due_paise, s.completed_at,
        actor.display_name AS actor_name,
        COALESCE(c.name, s.customer_name) AS customer_name,
        (s.guest_approval_id IS NOT NULL OR s.guest_override_reason IS NOT NULL)
@@ -106,6 +112,8 @@ async function sales(user: CurrentUser): Promise<ActivityItem[]> {
     actorName: row.actor_name,
     saleNumber: row.sale_number,
     totalPaise: Number(row.total_paise),
+    amountPaidPaise: Number(row.amount_paid_paise),
+    balanceDuePaise: Number(row.balance_due_paise),
     itemCount: row.item_count,
     unitCount: row.unit_count,
     paymentModes: row.payment_modes,

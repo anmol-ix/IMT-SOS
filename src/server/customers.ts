@@ -7,7 +7,7 @@ import { getDatabase, inTransaction } from "./database";
 export type Customer = {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   locality: string | null;
   email: string | null;
   totalOrders: number;
@@ -36,6 +36,9 @@ export type CustomerPurchase = {
   completedAt: string;
   saleType: "RETAIL" | "WHOLESALE";
   totalPaise: number;
+  amountPaidPaise: number;
+  balanceDuePaise: number;
+  dueReason: "CUSTOMER_WILL_PAY_LATER" | "DIGITAL_PAYMENT_PENDING" | null;
   itemCount: number;
   unitCount: number;
   paymentModes: string[];
@@ -90,7 +93,7 @@ LEFT JOIN sales s ON s.customer_id = c.id`;
 type CustomerRow = {
   id: string;
   name: string;
-  phone_normalized: string;
+  phone_normalized: string | null;
   locality: string | null;
   email: string | null;
   total_orders: number;
@@ -299,6 +302,9 @@ export async function getCustomerProfile(
       completed_at: Date;
       sale_type: "RETAIL" | "WHOLESALE";
       total_paise: string;
+      amount_paid_paise: string;
+      balance_due_paise: string;
+      due_reason: "CUSTOMER_WILL_PAY_LATER" | "DIGITAL_PAYMENT_PENDING" | null;
       item_count: number;
       unit_count: number;
       payment_modes: string[];
@@ -307,6 +313,7 @@ export async function getCustomerProfile(
     }>(
       `SELECT
          s.id, s.sale_number, s.completed_at, s.sale_type, s.total_paise,
+         s.amount_paid_paise, s.balance_due_paise, s.due_reason,
          actor.display_name AS sold_by,
          COALESCE(lines.item_count, 0)::int AS item_count,
          COALESCE(lines.unit_count, 0)::int AS unit_count,
@@ -361,6 +368,9 @@ export async function getCustomerProfile(
       completedAt: purchase.completed_at.toISOString(),
       saleType: purchase.sale_type,
       totalPaise: Number(purchase.total_paise),
+      amountPaidPaise: Number(purchase.amount_paid_paise),
+      balanceDuePaise: Number(purchase.balance_due_paise),
+      dueReason: purchase.due_reason,
       itemCount: purchase.item_count,
       unitCount: purchase.unit_count,
       paymentModes: purchase.payment_modes,
@@ -372,7 +382,7 @@ export async function getCustomerProfile(
 
 export async function createCustomer(
   user: CurrentUser,
-  input: { name: string; phone: string; locality?: string; email?: string },
+  input: { name: string; phone?: string; locality?: string; email?: string },
 ): Promise<Customer> {
   return inTransaction(async (client) => {
     const id = randomUUID();
@@ -386,7 +396,7 @@ export async function createCustomer(
         id,
         user.businessId,
         input.name.trim(),
-        normalizePhone(input.phone),
+        input.phone ? normalizePhone(input.phone) : null,
         input.locality?.trim() || null,
         input.email?.trim().toLowerCase() || null,
         user.id,

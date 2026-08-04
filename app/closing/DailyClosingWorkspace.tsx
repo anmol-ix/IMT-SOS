@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AppShell from "@/components/AppShell";
+import CustomSelect from "@/components/ui/CustomSelect";
 import PageHeader from "@/components/ui/PageHeader";
 
 type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER";
@@ -508,17 +509,17 @@ export default function DailyClosingWorkspace({
                 <div className="closing-fields two">
                   <label>
                     Correction reason
-                    <select
-                      aria-label="Correction reason"
+                    <CustomSelect
                       value={correctionReason}
-                      onChange={(event) =>
-                        setCorrectionReason(event.target.value as CorrectionReason)}
-                    >
-                      <option value="LATE_SALES">Sales completed after closing</option>
-                      <option value="COUNT_CORRECTION">Cash count correction</option>
-                      <option value="PAYMENT_CORRECTION">Payment verification correction</option>
-                      <option value="OTHER">Other controlled correction</option>
-                    </select>
+                      ariaLabel="Correction reason"
+                      onChange={(value) => setCorrectionReason(value as CorrectionReason)}
+                      options={[
+                        { value: "LATE_SALES", label: "Sales completed after closing" },
+                        { value: "COUNT_CORRECTION", label: "Cash count correction" },
+                        { value: "PAYMENT_CORRECTION", label: "Payment verification correction" },
+                        { value: "OTHER", label: "Other controlled correction" },
+                      ]}
+                    />
                   </label>
                   <label>
                     Why is a new revision needed?

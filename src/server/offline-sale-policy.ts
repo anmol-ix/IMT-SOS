@@ -18,6 +18,7 @@ export function requireOfflineSalePolicy(input: CompleteSaleInput): void {
     input.customerId
     || input.guestApprovalId
     || input.ownerGuestOverride
+    || input.dueReason
     || input.lines.some((line) => line.approvalId || line.ownerException)
   ) {
     throw new OfflineSalePolicyError(

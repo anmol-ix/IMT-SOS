@@ -152,7 +152,10 @@ export function buildOfflineSaleCommand(input: {
     }
     if (
       !Number.isInteger(line.unitPricePaise)
-      || line.unitPricePaise < product.minimumPricePaise
+      || line.unitPricePaise < Math.min(
+        product.standardPricePaise,
+        product.minimumPricePaise,
+      )
       || line.unitPricePaise > product.standardPricePaise
     ) {
       throw new OfflineSaleNotAllowedError(

@@ -43,6 +43,13 @@ describe("offline catalogue search", () => {
       .toBe("1");
   });
 
+  it("returns products while a SKU or barcode is still being typed", () => {
+    expect(searchOfflineCatalog(products, "IMT-CAR-RC-").map((product) => product.id))
+      .toEqual(["1"]);
+    expect(searchOfflineCatalog(products, "8901000").map((product) => product.id))
+      .toEqual(["1", "2"]);
+  });
+
   it("matches product names without exposing more than twelve results", () => {
     const many = Array.from({ length: 20 }, (_, index) => ({
       ...products[1],

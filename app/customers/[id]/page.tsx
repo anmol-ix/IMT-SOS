@@ -45,7 +45,7 @@ export default async function CustomerProfilePage({
           eyebrow="Customer profile"
           headingId="customer-profile-heading"
           title={profile.name}
-          description={`${profile.phone}${profile.locality ? ` · ${profile.locality}` : ""}`}
+          description={`${profile.phone ?? "Phone not added"}${profile.locality ? ` · ${profile.locality}` : ""}`}
           actions={
             <div className="page-action-row">
               <Link className="secondary-button" href="/customers">Back to customers</Link>
@@ -70,7 +70,7 @@ export default async function CustomerProfilePage({
               <span className={`customer-segment ${profile.segment.toLowerCase()}`}>{segmentLabels[profile.segment]}</span>
             </div>
             <dl className="record-details">
-              <div><dt>Phone</dt><dd><a href={`tel:${profile.phone}`}>{profile.phone}</a></dd></div>
+              <div><dt>Phone</dt><dd>{profile.phone ? <a href={`tel:${profile.phone}`}>{profile.phone}</a> : "Not added"}</dd></div>
               <div><dt>Email</dt><dd>{profile.email ? <a href={`mailto:${profile.email}`}>{profile.email}</a> : "Not saved"}</dd></div>
               <div><dt>Locality</dt><dd>{profile.locality ?? "Not saved"}</dd></div>
               <div><dt>Retail purchases</dt><dd>{profile.retailOrders} orders · {money.format(profile.retailSpendPaise / 100)}</dd></div>
@@ -88,13 +88,25 @@ export default async function CustomerProfilePage({
                   <article key={purchase.id}>
                     <div className="customer-purchase-heading">
                       <span><strong>{purchase.saleNumber}</strong><small>{purchaseDate.format(new Date(purchase.completedAt))}</small></span>
-                      <span><strong>{money.format(purchase.totalPaise / 100)}</strong><small>{purchase.saleType === "WHOLESALE" ? "Wholesale" : "Retail"}</small></span>
+                      <span>
+                        <strong>{money.format(purchase.totalPaise / 100)}</strong>
+                        <small>
+                          {purchase.balanceDuePaise > 0
+                            ? `${money.format(purchase.balanceDuePaise / 100)} due`
+                            : purchase.saleType === "WHOLESALE" ? "Wholesale" : "Retail"}
+                        </small>
+                      </span>
                     </div>
                     <div className="customer-purchase-products">
                       {purchase.products.map((product) => <span key={`${purchase.id}-${product.sku}`}>{product.name} × {product.quantity}</span>)}
                     </div>
                     <footer>
-                      <span>{purchase.unitCount} units · {purchase.paymentModes.map(paymentLabel).join(" + ")}</span>
+                      <span>
+                        {purchase.unitCount} units ·{" "}
+                        {purchase.paymentModes.length
+                          ? purchase.paymentModes.map(paymentLabel).join(" + ")
+                          : "No payment received"}
+                      </span>
                       <span>Sold by {purchase.soldBy}</span>
                     </footer>
                   </article>

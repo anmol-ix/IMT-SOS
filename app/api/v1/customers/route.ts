@@ -10,7 +10,7 @@ const phoneSchema = z
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  phone: phoneSchema,
+  phone: phoneSchema.optional(),
   locality: z.string().trim().min(1).max(120).optional(),
   email: z.string().trim().email().max(254).optional(),
 });

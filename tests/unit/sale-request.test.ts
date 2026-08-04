@@ -19,4 +19,14 @@ describe("Retail and Wholesale sale request", () => {
     expect(saleRequestSchema.parse({ ...request, saleType: "WHOLESALE" }).saleType)
       .toBe("WHOLESALE");
   });
+
+  it("accepts an unpaid sale request with a due reason", () => {
+    const parsed = saleRequestSchema.parse({
+      ...request,
+      payments: [],
+      dueReason: "CUSTOMER_WILL_PAY_LATER",
+    });
+    expect(parsed.payments).toEqual([]);
+    expect(parsed.dueReason).toBe("CUSTOMER_WILL_PAY_LATER");
+  });
 });

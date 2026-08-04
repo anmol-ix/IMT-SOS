@@ -1,23 +1,21 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
-import PageHeader from "@/components/ui/PageHeader";
+import CreatableCombobox, {
+  type CreatableOption,
+} from "@/components/ui/CreatableCombobox";
+import CustomSelect from "@/components/ui/CustomSelect";
+import Modal from "@/components/ui/Modal";
 import {
   normalizeSkuCode,
   priceFloorConflict,
   PRODUCT_UNITS,
   productPricingConflict,
   recommendedPriceFloors,
-  RACK_CODES,
+  suggestSkuCode,
   type ProductUnit,
 } from "@/shared/product-setup-policy";
-import {
-  PRODUCT_CHANGE_REASON_LABELS,
-  PRODUCT_CHANGE_REASONS,
-  productChangeNoteConflict,
-  type ProductChangeReason,
-} from "@/shared/product-change-policy";
 
 type Product = {
   id: string;
@@ -83,6 +81,15 @@ type ReceiptLine = {
   invoiceUnitCostPaise: number;
 };
 
+type ReceiveStep = "BILL" | "PRODUCTS" | "CONFIRM";
+
+type LockedBill = {
+  supplierId: string;
+  supplierName: string;
+  invoiceReference: string;
+  note: string;
+};
+
 type NewProductForm = {
   productName: string;
   category: string;
@@ -90,12 +97,9 @@ type NewProductForm = {
   subcategory: string;
   subcategoryCode: string;
   brand: string;
-  variantName: string;
-  variantCode: string;
-  supplierBarcode: string;
+  hasVariants: boolean;
+  variants: Array<{ id: string; name: string; code: string }>;
   unitOfMeasure: ProductUnit;
-  packSize: string;
-  rackLocation: string;
   purchaseCostRupees: string;
   standardPriceRupees: string;
   wholesalePriceRupees: string;
@@ -105,24 +109,17 @@ type NewProductForm = {
   storeFloorRupees: string;
 };
 
-type ProductChangeForm = {
-  rackLocation: string;
-  mrpRupees: string;
-  standardPriceRupees: string;
-  wholesalePriceRupees: string;
-  ownerFloorRupees: string;
-  trustedFloorRupees: string;
-  storeFloorRupees: string;
-  reason: ProductChangeReason;
-  note: string;
-};
-
 type Props = {
   displayName: string;
   role: "BUSINESS_OWNER" | "TRUSTED_OPERATOR";
   initialProducts: Product[];
   initialDrafts: Draft[];
   initialSuppliers: Supplier[];
+  initialMetadata: {
+    categories: Array<{ name: string; code: string }>;
+    subcategories: Array<{ name: string; code: string; category: string }>;
+    brands: string[];
+  };
 };
 
 const money = new Intl.NumberFormat("en-IN", {
@@ -143,12 +140,9 @@ function emptyNewProduct(): NewProductForm {
     subcategory: "",
     subcategoryCode: "",
     brand: "",
-    variantName: "",
-    variantCode: "",
-    supplierBarcode: "",
+    hasVariants: false,
+    variants: [{ id: "variant-1", name: "", code: "" }],
     unitOfMeasure: "UNIT",
-    packSize: "1",
-    rackLocation: "",
     purchaseCostRupees: "",
     standardPriceRupees: "",
     wholesalePriceRupees: "",
@@ -169,22 +163,27 @@ export default function ReceiveWorkspace({
   initialProducts,
   initialDrafts,
   initialSuppliers,
+  initialMetadata,
 }: Props) {
   const [query, setQuery] = useState("");
   const [products, setProducts] = useState(initialProducts);
   const [drafts, setDrafts] = useState(initialDrafts);
   const [suppliers, setSuppliers] = useState(initialSuppliers);
-  const [supplierId, setSupplierId] = useState(initialSuppliers[0]?.id ?? "");
+  const [metadata, setMetadata] = useState(initialMetadata);
+  const [step, setStep] = useState<ReceiveStep>("BILL");
+  const [supplierId, setSupplierId] = useState("");
+  const [lockedBill, setLockedBill] = useState<LockedBill | null>(null);
+  const [showCancelReceipt, setShowCancelReceipt] = useState(false);
   const [showNewSupplier, setShowNewSupplier] = useState(initialSuppliers.length === 0);
   const [showNewProduct, setShowNewProduct] = useState(false);
+  const [showCloseProductDraft, setShowCloseProductDraft] = useState(false);
+  const [showDrafts, setShowDrafts] = useState(false);
   const [newProduct, setNewProduct] = useState<NewProductForm>(emptyNewProduct);
   const [newSupplierName, setNewSupplierName] = useState("");
   const [newSupplierPhone, setNewSupplierPhone] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
-  const [managedProduct, setManagedProduct] = useState<Product | null>(null);
-  const [productChange, setProductChange] = useState<ProductChangeForm | null>(
-    null,
-  );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const [sellableQuantity, setSellableQuantity] = useState(1);
   const [openBoxQuantity, setOpenBoxQuantity] = useState(0);
   const [damagedQuantity, setDamagedQuantity] = useState(0);
@@ -200,20 +199,65 @@ export default function ReceiveWorkspace({
   const [submitting, setSubmitting] = useState(false);
   const [creatingSupplier, setCreatingSupplier] = useState(false);
   const [creatingProduct, setCreatingProduct] = useState(false);
-  const [savingProductChange, setSavingProductChange] = useState(false);
+  const [mrpManuallyEdited, setMrpManuallyEdited] = useState(false);
   const [completingId, setCompletingId] = useState("");
   const completionCommands = useRef(new Map<string, string>());
+  const productSearchSequence = useRef(0);
+  const productSearchRef = useRef<HTMLFormElement>(null);
   const [commandId, setCommandId] = useState(() => crypto.randomUUID());
   const [productCommandId, setProductCommandId] = useState(
-    () => crypto.randomUUID(),
-  );
-  const [productChangeCommandId, setProductChangeCommandId] = useState(
     () => crypto.randomUUID(),
   );
 
   function resetDuplicateCheck() {
     setDuplicateWarning("");
     setDuplicateAcknowledged(false);
+  }
+
+  function startReceipt(event?: FormEvent) {
+    event?.preventDefault();
+    const supplier = suppliers.find((item) => item.id === supplierId);
+    if (!supplier) {
+      setError("Select the supplier whose delivery you are receiving.");
+      return;
+    }
+    setLockedBill({
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      invoiceReference: invoiceReference.trim(),
+      note: note.trim(),
+    });
+    setStep("PRODUCTS");
+    setError("");
+    setMessage("");
+    resetDuplicateCheck();
+  }
+
+  function clearReceiptTransaction() {
+    setStep("BILL");
+    setLockedBill(null);
+    setSupplierId("");
+    setInvoiceReference("");
+    setNote("");
+    setReceiptLines([]);
+    setSelected(null);
+    setSellableQuantity(1);
+    setOpenBoxQuantity(0);
+    setDamagedQuantity(0);
+    setUnitCostRupees("");
+    setQuery("");
+    setShowNewProduct(false);
+    setShowNewSupplier(initialSuppliers.length === 0);
+    setCommandId(crypto.randomUUID());
+    setError("");
+    setMessage("");
+    resetDuplicateCheck();
+  }
+
+  function cancelReceipt() {
+    clearReceiptTransaction();
+    setShowCancelReceipt(false);
+    setMessage("Receipt cancelled. No stock was changed.");
   }
 
   function chooseProduct(product: Product) {
@@ -229,29 +273,59 @@ export default function ReceiveWorkspace({
           ? ((product.latestLandedCostPaise ?? 0) / 100).toFixed(2)
           : "",
     );
+    setSearchOpen(false);
+    setSearchActiveIndex(0);
     setMessage("");
     setError("");
   }
 
-  async function findProducts(event: FormEvent) {
-    event.preventDefault();
+  async function loadProducts(searchQuery: string, selectSingle = false) {
+    const requestNumber = ++productSearchSequence.current;
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/v1/catalog?q=${encodeURIComponent(query)}`);
+      const response = await fetch(`/api/v1/catalog?q=${encodeURIComponent(searchQuery)}`);
       const body = await response.json();
       if (!response.ok) throw new Error(body.error?.message ?? "Products could not be loaded.");
+      if (requestNumber !== productSearchSequence.current) return;
       setProducts(body.products);
-      if (body.products.length === 1) chooseProduct(body.products[0]);
+      if (selectSingle && body.products.length === 1) chooseProduct(body.products[0]);
     } catch (reason) {
+      if (requestNumber !== productSearchSequence.current) return;
       setError(reason instanceof Error ? reason.message : "Products could not be loaded.");
     } finally {
-      setLoading(false);
+      if (requestNumber === productSearchSequence.current) setLoading(false);
     }
   }
 
-  async function createNewSupplier(event: FormEvent) {
+  async function findProducts(event: FormEvent) {
     event.preventDefault();
+    await loadProducts(query, true);
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadProducts(query);
+    }, 180);
+
+    return () => window.clearTimeout(timeoutId);
+    // The product chooser intentionally follows the search text only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!productSearchRef.current?.contains(event.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [searchOpen]);
+
+  async function createNewSupplier(event?: FormEvent) {
+    event?.preventDefault();
     setCreatingSupplier(true);
     setError("");
     try {
@@ -288,122 +362,107 @@ export default function ReceiveWorkspace({
     setNewProduct((current) => ({ ...current, [field]: value }));
   }
 
-  function beginProductChange(product: Product) {
-    if (
-      product.ownerFloorPaise === undefined ||
-      product.trustedOperatorFloorPaise === undefined ||
-      product.storeOperatorFloorPaise === undefined ||
-      product.latestLandedCostPaise === undefined ||
-      !product.rackLocation
-    ) {
-      setError("Current owner pricing or rack details could not be loaded.");
+  function requestCloseNewProduct() {
+    const blank = emptyNewProduct();
+    if (JSON.stringify(newProduct) !== JSON.stringify(blank)) {
+      setShowCloseProductDraft(true);
       return;
     }
-    setManagedProduct(product);
-    setProductChange({
-      rackLocation: product.rackLocation,
-      mrpRupees: (product.mrpPaise / 100).toFixed(2),
-      standardPriceRupees: (product.standardPricePaise / 100).toFixed(2),
-      wholesalePriceRupees: (product.wholesalePricePaise / 100).toFixed(2),
-      ownerFloorRupees: (product.ownerFloorPaise / 100).toFixed(2),
-      trustedFloorRupees: (
-        product.trustedOperatorFloorPaise / 100
-      ).toFixed(2),
-      storeFloorRupees: (product.storeOperatorFloorPaise / 100).toFixed(2),
-      reason: "MARGIN_REVIEW",
-      note: "",
+    setShowNewProduct(false);
+    setError("");
+  }
+
+  function chooseCategory(value: string, option?: CreatableOption) {
+    setNewProduct((current) => {
+      const changed = current.category !== value;
+      const code = option?.detail ?? suggestSkuCode(
+        value,
+        metadata.categories.map((item) => item.code),
+        3,
+      );
+      return {
+        ...current,
+        category: value,
+        categoryCode: code,
+        ...(changed
+          ? { subcategory: "", subcategoryCode: "" }
+          : {}),
+      };
     });
-    setProductChangeCommandId(crypto.randomUUID());
-    setError("");
-    setMessage("");
   }
 
-  function changeExistingProduct<K extends keyof ProductChangeForm>(
-    field: K,
-    value: ProductChangeForm[K],
-  ) {
-    setProductChange((current) =>
-      current ? { ...current, [field]: value } : current,
-    );
-  }
-
-  async function saveExistingProduct(event: FormEvent) {
-    event.preventDefault();
-    if (!managedProduct || !productChange) return;
-    const payload = {
-      rackLocation: productChange.rackLocation,
-      mrpPaise: rupeesToPaise(productChange.mrpRupees),
-      standardPricePaise: rupeesToPaise(productChange.standardPriceRupees),
-      wholesalePricePaise: rupeesToPaise(productChange.wholesalePriceRupees),
-      ownerFloorPaise: rupeesToPaise(productChange.ownerFloorRupees),
-      trustedOperatorFloorPaise: rupeesToPaise(
-        productChange.trustedFloorRupees,
+  function chooseSubcategory(value: string, option?: CreatableOption) {
+    setNewProduct((current) => ({
+      ...current,
+      subcategory: value,
+      subcategoryCode: option?.detail ?? suggestSkuCode(
+        value,
+        metadata.subcategories
+          .filter((item) => item.category.toLocaleLowerCase("en-IN") === current.category.toLocaleLowerCase("en-IN"))
+          .map((item) => item.code),
+        3,
       ),
-      storeOperatorFloorPaise: rupeesToPaise(productChange.storeFloorRupees),
-      reason: productChange.reason,
-      note: productChange.note.trim() || undefined,
-    };
-    const pricingConflict = productPricingConflict(
-      managedProduct.latestLandedCostPaise ?? 0,
-      payload.standardPricePaise,
-      payload.mrpPaise,
-      payload.wholesalePricePaise,
-    );
-    const floorConflict = priceFloorConflict(
-      managedProduct.latestLandedCostPaise ?? 0,
-      payload.wholesalePricePaise,
-      {
-        ownerFloorPaise: payload.ownerFloorPaise,
-        trustedOperatorFloorPaise: payload.trustedOperatorFloorPaise,
-        storeOperatorFloorPaise: payload.storeOperatorFloorPaise,
-      },
-    );
-    const noteConflict = productChangeNoteConflict(
-      payload.reason,
-      payload.note,
-    );
-    if (pricingConflict || floorConflict || noteConflict) {
-      setError(pricingConflict || floorConflict || noteConflict || "");
-      return;
-    }
-    setSavingProductChange(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/v1/products/${managedProduct.id}`, {
-        method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": productChangeCommandId,
-        },
-        body: JSON.stringify(payload),
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "The product could not be updated.");
-      }
-      const updated = body.change.product as Product;
-      setProducts((current) =>
-        current.map((product) => product.id === updated.id ? updated : product),
-      );
-      setReceiptLines((current) =>
-        current.map((line) =>
-          line.product.id === updated.id
-            ? { ...line, product: updated }
-            : line,
-        ),
-      );
-      if (selected?.id === updated.id) setSelected(updated);
-      setManagedProduct(null);
-      setProductChange(null);
-      setProductChangeCommandId(crypto.randomUUID());
-      setMessage(
-        `${updated.sku} updated · ${body.change.priceChanged ? "new price version" : "prices unchanged"} · ${body.change.rackChanged ? `rack ${updated.rackLocation}` : "rack unchanged"}.`,
-      );
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The product could not be updated.");
-    } finally {
-      setSavingProductChange(false);
-    }
+    }));
+  }
+
+  function setHasVariants(checked: boolean) {
+    setNewProduct((current) => ({
+      ...current,
+      hasVariants: checked,
+      variants: current.variants.length > 0
+        ? current.variants
+        : [{ id: crypto.randomUUID(), name: "", code: "" }],
+    }));
+  }
+
+  function changeVariant(id: string, field: "name" | "code", value: string) {
+    setNewProduct((current) => ({
+      ...current,
+      variants: current.variants.map((variant) => {
+        if (variant.id !== id) return variant;
+        if (field === "code") return { ...variant, code: normalizeSkuCode(value, 4) };
+        const previousSuggestion = suggestSkuCode(variant.name, [], 4);
+        return {
+          ...variant,
+          name: value,
+          code: !variant.code || variant.code === previousSuggestion
+            ? suggestSkuCode(value, [], 4)
+            : variant.code,
+        };
+      }),
+    }));
+  }
+
+  function addVariant() {
+    setNewProduct((current) => ({
+      ...current,
+      variants: [
+        ...current.variants,
+        { id: crypto.randomUUID(), name: "", code: "" },
+      ],
+    }));
+  }
+
+  function removeVariant(id: string) {
+    setNewProduct((current) => ({
+      ...current,
+      variants: current.variants.length === 1
+        ? current.variants
+        : current.variants.filter((variant) => variant.id !== id),
+    }));
+  }
+
+  function changePurchaseCost(value: string) {
+    setNewProduct((current) => {
+      const amount = Number(value);
+      return {
+        ...current,
+        purchaseCostRupees: value,
+        ...(!mrpManuallyEdited
+          ? { mrpRupees: Number.isFinite(amount) && amount > 0 ? String(Math.round(amount * 250) / 100) : "" }
+          : {}),
+      };
+    });
   }
 
   async function createNewProduct(event: FormEvent) {
@@ -420,6 +479,20 @@ export default function ReceiveWorkspace({
     );
     if (pricingConflict) {
       setError(pricingConflict);
+      return;
+    }
+    const activeVariants = newProduct.hasVariants
+      ? newProduct.variants.map((variant) => ({
+          name: variant.name.trim(),
+          code: normalizeSkuCode(variant.code, 4),
+        }))
+      : [];
+    if (
+      newProduct.hasVariants &&
+      (activeVariants.some((variant) => !variant.name || variant.code.length < 2) ||
+        new Set(activeVariants.map((variant) => variant.code)).size !== activeVariants.length)
+    ) {
+      setError("Every variant needs a name and a unique 2–4 character code.");
       return;
     }
     const recommendedFloors = recommendedPriceFloors(
@@ -463,12 +536,10 @@ export default function ReceiveWorkspace({
           subcategory: newProduct.subcategory,
           subcategoryCode: newProduct.subcategoryCode,
           brand: newProduct.brand.trim() || undefined,
-          variantName: newProduct.variantName.trim() || undefined,
-          variantCode: newProduct.variantCode.trim() || undefined,
-          supplierBarcode: newProduct.supplierBarcode.trim() || undefined,
+          ...(newProduct.hasVariants ? { variants: activeVariants } : {}),
           unitOfMeasure: newProduct.unitOfMeasure,
-          packSize: Number(newProduct.packSize),
-          rackLocation: newProduct.rackLocation,
+          packSize: 1,
+          rackLocation: null,
           purchaseCostPaise,
           standardPricePaise,
           wholesalePricePaise,
@@ -494,17 +565,64 @@ export default function ReceiveWorkspace({
       if (!response.ok) {
         throw new Error(body.error?.message ?? "The product could not be created.");
       }
+      const createdMetadata = {
+        category: newProduct.category.trim(),
+        categoryCode: newProduct.categoryCode.trim(),
+        subcategory: newProduct.subcategory.trim(),
+        subcategoryCode: newProduct.subcategoryCode.trim(),
+        brand: newProduct.brand.trim(),
+      };
+      const createdProducts: Product[] = body.products ?? [body.product];
       setProducts((current) => [
-        body.product,
-        ...current.filter((product) => product.id !== body.product.id),
+        ...createdProducts,
+        ...current.filter((product) => !createdProducts.some((created) => created.id === product.id)),
       ]);
+      setMetadata((current) => ({
+        categories: current.categories.some(
+          (item) => item.name.toLocaleLowerCase("en-IN") ===
+            createdMetadata.category.toLocaleLowerCase("en-IN"),
+        )
+          ? current.categories
+          : [
+              ...current.categories,
+              { name: createdMetadata.category, code: createdMetadata.categoryCode },
+            ].sort((left, right) => left.name.localeCompare(right.name)),
+        subcategories: current.subcategories.some(
+          (item) =>
+            item.category.toLocaleLowerCase("en-IN") ===
+              createdMetadata.category.toLocaleLowerCase("en-IN") &&
+            item.name.toLocaleLowerCase("en-IN") ===
+              createdMetadata.subcategory.toLocaleLowerCase("en-IN"),
+        )
+          ? current.subcategories
+          : [
+              ...current.subcategories,
+              {
+                name: createdMetadata.subcategory,
+                code: createdMetadata.subcategoryCode,
+                category: createdMetadata.category,
+              },
+            ].sort((left, right) => left.name.localeCompare(right.name)),
+        brands:
+          !createdMetadata.brand ||
+          current.brands.some(
+            (brand) =>
+              brand.toLocaleLowerCase("en-IN") ===
+              createdMetadata.brand.toLocaleLowerCase("en-IN"),
+          )
+            ? current.brands
+            : [...current.brands, createdMetadata.brand].sort((left, right) =>
+                left.localeCompare(right),
+              ),
+      }));
       chooseProduct(body.product);
       setUnitCostRupees(newProduct.purchaseCostRupees);
       setNewProduct(emptyNewProduct());
+      setMrpManuallyEdited(false);
       setProductCommandId(crypto.randomUUID());
       setShowNewProduct(false);
       setMessage(
-        `${body.product.sku} created with zero stock. Add its quantities to this receipt to bring stock in.`,
+        `${createdProducts.length === 1 ? body.product.sku : `${createdProducts.length} variants`} created. Add the delivered quantity to this receipt.`,
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The product could not be created.");
@@ -576,7 +694,7 @@ export default function ReceiveWorkspace({
   }
 
   async function saveReceipt() {
-    if (!supplierId || receiptLines.length === 0) return;
+    if (!lockedBill || receiptLines.length === 0) return;
     setSubmitting(true);
     setError("");
     try {
@@ -584,9 +702,9 @@ export default function ReceiveWorkspace({
         method: "POST",
         headers: { "content-type": "application/json", "idempotency-key": commandId },
         body: JSON.stringify({
-          supplierId,
-          supplierInvoiceReference: invoiceReference.trim() || undefined,
-          note: note.trim() || undefined,
+          supplierId: lockedBill.supplierId,
+          supplierInvoiceReference: lockedBill.invoiceReference || undefined,
+          note: lockedBill.note || undefined,
           duplicateAcknowledged,
           lines: receiptLines.map((line) => ({
             variantId: line.product.id,
@@ -611,21 +729,15 @@ export default function ReceiveWorkspace({
           body.draft,
           ...current.filter((draft) => draft.receiptId !== body.draft.receiptId),
         ]);
-        setMessage(
-          `${body.draft.receiptNumber} saved with ${body.draft.lines.length} product lines · stock unchanged.`,
-        );
+        const successMessage = `${body.draft.receiptNumber} saved with ${body.draft.lines.length} product lines · stock unchanged.`;
+        clearReceiptTransaction();
+        setMessage(successMessage);
       } else {
         applyCompletedLines(body.receipt.lines);
-        setMessage(
-          `${body.receipt.receiptNumber} complete · ${body.receipt.totalReceivedQuantity} units across ${body.receipt.lines.length} products.`,
-        );
+        const successMessage = `${body.receipt.receiptNumber} complete · ${body.receipt.totalReceivedQuantity} units across ${body.receipt.lines.length} products.`;
+        clearReceiptTransaction();
+        setMessage(successMessage);
       }
-      setReceiptLines([]);
-      setSelected(null);
-      setInvoiceReference("");
-      setNote("");
-      setCommandId(crypto.randomUUID());
-      resetDuplicateCheck();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The receipt could not be saved.");
     } finally {
@@ -727,103 +839,115 @@ export default function ReceiveWorkspace({
           selectedNewProductFloors,
         )
       : null;
-  const skuPreview = [
+  const skuBasePreview = [
     "IMT",
     normalizeSkuCode(newProduct.categoryCode) || "CCC",
     normalizeSkuCode(newProduct.subcategoryCode) || "SS",
     "####",
-    ...(normalizeSkuCode(newProduct.variantCode, 4)
-      ? [normalizeSkuCode(newProduct.variantCode, 4)]
-      : []),
   ].join("-");
-  const changedMrpPaise = productChange
-    ? rupeesToPaise(productChange.mrpRupees)
-    : 0;
-  const changedStandardPricePaise = productChange
-    ? rupeesToPaise(productChange.standardPriceRupees)
-    : 0;
-  const changedWholesalePricePaise = productChange
-    ? rupeesToPaise(productChange.wholesalePriceRupees)
-    : 0;
-  const changedFloors = productChange
-    ? {
-        ownerFloorPaise: rupeesToPaise(productChange.ownerFloorRupees),
-        trustedOperatorFloorPaise: rupeesToPaise(
-          productChange.trustedFloorRupees,
-        ),
-        storeOperatorFloorPaise: rupeesToPaise(productChange.storeFloorRupees),
-      }
-    : null;
-  const existingProductPricingConflict =
-    managedProduct && productChange
-      ? productPricingConflict(
-          managedProduct.latestLandedCostPaise ?? 0,
-          changedStandardPricePaise,
-          changedMrpPaise,
-          changedWholesalePricePaise,
-        )
-      : null;
-  const existingProductFloorConflict =
-    managedProduct && changedFloors && !existingProductPricingConflict
-      ? priceFloorConflict(
-          managedProduct.latestLandedCostPaise ?? 0,
-          changedWholesalePricePaise,
-          changedFloors,
-        )
-      : null;
-  const existingProductNoteConflict = productChange
-    ? productChangeNoteConflict(productChange.reason, productChange.note)
-    : null;
-  const existingProductHasChanges =
-    Boolean(managedProduct && productChange && changedFloors) &&
-    (
-      managedProduct!.rackLocation !== productChange!.rackLocation ||
-      managedProduct!.mrpPaise !== changedMrpPaise ||
-      managedProduct!.standardPricePaise !== changedStandardPricePaise ||
-      managedProduct!.wholesalePricePaise !== changedWholesalePricePaise ||
-      managedProduct!.ownerFloorPaise !== changedFloors!.ownerFloorPaise ||
-      managedProduct!.trustedOperatorFloorPaise !==
-        changedFloors!.trustedOperatorFloorPaise ||
-      managedProduct!.storeOperatorFloorPaise !==
-        changedFloors!.storeOperatorFloorPaise
-    );
+  const variantCodes = newProduct.variants.map((variant) => normalizeSkuCode(variant.code, 4));
+  const newProductVariantConflict = newProduct.hasVariants && (
+    newProduct.variants.some((variant) => !variant.name.trim() || normalizeSkuCode(variant.code, 4).length < 2) ||
+    new Set(variantCodes).size !== variantCodes.length
+  );
+  const categoryOptions: CreatableOption[] = metadata.categories.map((item) => ({
+    value: item.name,
+    label: item.name,
+    detail: item.code,
+  }));
+  const subcategoryOptions: CreatableOption[] = metadata.subcategories
+    .filter(
+      (item) =>
+        !newProduct.category ||
+        item.category.toLocaleLowerCase("en-IN") ===
+          newProduct.category.toLocaleLowerCase("en-IN"),
+    )
+    .map((item) => ({
+      value: item.name,
+      label: item.name,
+      detail: item.code,
+    }));
+  const brandOptions: CreatableOption[] = metadata.brands.map((brand) => ({
+    value: brand,
+    label: brand,
+  }));
 
   return (
     <AppShell displayName={displayName} role={role}>
-      <section className="sell-page receive-page" aria-labelledby="receive-heading">
-        <PageHeader
-          eyebrow="Incoming stock"
-          headingId="receive-heading"
-          title={role === "BUSINESS_OWNER" ? "Receive stock" : "Prepare receipt"}
-          description={
-            role === "BUSINESS_OWNER"
-              ? "Enter the supplier bill, add every delivered product, then confirm once to update stock."
-              : "Enter the supplier bill and delivered products for owner review; stock stays unchanged."
-          }
-        />
+      <section className="receive-v2" aria-labelledby="receive-heading">
+        <header className="receive-v2__module-bar">
+          <div>
+            <p className="eyebrow">Incoming stock</p>
+            <h1 id="receive-heading">
+              {role === "BUSINESS_OWNER" ? "Receive stock" : "Prepare receipt"}
+            </h1>
+            <p>
+              {role === "BUSINESS_OWNER"
+                ? "Match one supplier bill, add its products, then post the stock once."
+                : "Prepare the supplier bill for owner review; stock stays unchanged."}
+            </p>
+          </div>
+          <div className="receive-v2__header-actions">
+            {drafts.length > 0 && (
+              <button type="button" onClick={() => setShowDrafts(true)}>
+                Review drafts <span>{drafts.length}</span>
+              </button>
+            )}
+            <strong>
+              {step === "BILL"
+                ? "Step 1 of 3"
+                : step === "PRODUCTS"
+                  ? `${receiptQuantity} units on receipt`
+                  : "Ready for final check"}
+            </strong>
+            {lockedBill && (
+              <button
+                type="button"
+                className="receive-v2__cancel-action"
+                onClick={() => setShowCancelReceipt(true)}
+              >
+                Cancel receipt
+              </button>
+            )}
+          </div>
+        </header>
 
-        {error && <p className="alert error" role="alert">{error}</p>}
-        {message && <p className="alert success" role="status">{message}</p>}
+        {(error || message) && (
+          <div className={`receive-v2__notice ${error ? "is-error" : "is-success"}`}>
+            <p role={error ? "alert" : "status"}>{error || message}</p>
+            <button
+              type="button"
+              aria-label="Dismiss message"
+              onClick={() => {
+                setError("");
+                setMessage("");
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
 
         <ol className="receive-steps" aria-label="Receiving progress">
-          <li className={supplierId ? "done" : "active"}>
+          <li className={step === "BILL" ? "active" : "done"}>
             <span>1</span>
-            <div><strong>Supplier & bill</strong><small>Identify this delivery</small></div>
+            <div><strong>Bill</strong><small>Supplier and bill details</small></div>
           </li>
-          <li className={receiptLines.length ? "done" : supplierId ? "active" : ""}>
+          <li className={step === "PRODUCTS" ? "active" : step === "CONFIRM" ? "done" : ""}>
             <span>2</span>
-            <div><strong>Add products</strong><small>Quantity and bill cost</small></div>
+            <div><strong>Products</strong><small>Quantity and bill cost</small></div>
           </li>
-          <li className={receiptLines.length ? "active" : ""}>
+          <li className={step === "CONFIRM" ? "active" : ""}>
             <span>3</span>
             <div>
-              <strong>{role === "BUSINESS_OWNER" ? "Add to stock" : "Send for review"}</strong>
+              <strong>{role === "BUSINESS_OWNER" ? "Confirm" : "Review"}</strong>
               <small>One final confirmation</small>
             </div>
           </li>
         </ol>
 
-        <section className="receipt-header-card" aria-labelledby="supplier-bill-heading">
+        {step === "BILL" && (
+        <section className="receipt-header-card receive-v2__bill" aria-labelledby="supplier-bill-heading">
           <div className="section-title">
             <div>
               <h2 id="supplier-bill-heading">Supplier bill</h2>
@@ -840,19 +964,19 @@ export default function ReceiveWorkspace({
           <div className="receive-bill-fields">
             <label>
               Supplier
-              <select
+              <CustomSelect
                 value={supplierId}
-                onChange={(event) => {
-                  setSupplierId(event.target.value);
+                ariaLabel="Supplier"
+                options={[
+                  { value: "", label: "Select supplier" },
+                  ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
+                ]}
+                onChange={(value) => {
+                  setSupplierId(value);
                   resetDuplicateCheck();
                 }}
                 required
-              >
-                <option value="">Select supplier</option>
-                {suppliers.map((supplier) => (
-                  <option value={supplier.id} key={supplier.id}>{supplier.name}</option>
-                ))}
-              </select>
+              />
             </label>
             <label>
               Bill number
@@ -880,512 +1004,507 @@ export default function ReceiveWorkspace({
             <form className="new-supplier-form" onSubmit={createNewSupplier}>
               <label>Supplier name<input value={newSupplierName} onChange={(event) => setNewSupplierName(event.target.value)} maxLength={120} required /></label>
               <label>Phone, optional<input value={newSupplierPhone} onChange={(event) => setNewSupplierPhone(event.target.value)} inputMode="tel" maxLength={18} /></label>
-              <button type="submit" disabled={creatingSupplier}>
+              <button type="submit" disabled={creatingSupplier || newSupplierName.trim().length < 1}>
                 {creatingSupplier ? "Adding…" : "Add and select supplier"}
               </button>
             </form>
           )}
-        </section>
-
-        <div className="receive-command-center">
-          <div className="receive-product-column">
-        <form className="search-bar" onSubmit={findProducts}>
-          <label htmlFor="product-search">Scan or find a delivered product</label>
-          <div className="search-row">
-            <input id="product-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="SKU, barcode or product name" autoComplete="off" />
-            <button type="submit" disabled={loading}>{loading ? "Finding…" : "Find"}</button>
+          <div className="receive-v2__bill-footer">
+            <p>
+              The supplier and bill are locked after this step. Nothing changes stock yet.
+            </p>
+            <button type="button" className="complete-button" disabled={!supplierId} onClick={() => startReceipt()}>
+              Continue to products
+            </button>
           </div>
-        </form>
+        </section>
+        )}
 
-        {role === "BUSINESS_OWNER" && (
-          <section
-            className={`new-product-panel${showNewProduct ? " expanded" : ""}`}
-            aria-labelledby="new-product-heading"
-          >
-            <div className="section-title">
-              <div>
-                <p className="eyebrow">Owner control</p>
-                <h2 id="new-product-heading">Product not found?</h2>
-              </div>
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => {
-                  setShowNewProduct((current) => !current);
-                  setError("");
-                }}
-              >
-                {showNewProduct ? "Cancel" : "Create new product"}
-              </button>
+        {lockedBill && step !== "BILL" && (
+          <section className="receive-v2__locked-context" aria-label="Locked receipt details">
+            <div>
+              <span>Supplier</span>
+              <strong>{lockedBill.supplierName}</strong>
             </div>
-            {!showNewProduct ? (
-              <p>
-                Only use this when the delivered product is genuinely new to the catalogue.
-              </p>
-            ) : (
-              <form className="new-product-form" onSubmit={createNewProduct}>
-                <div className="new-product-guidance">
-                  <strong>Identity first, then stock.</strong>
-                  <span>
-                    The app assigns the next number. Your printed barcode will contain
-                    the generated SKU.
-                  </span>
-                </div>
-                <div className="form-row two-columns">
-                  <label>
-                    Product name
-                    <input
-                      value={newProduct.productName}
-                      onChange={(event) =>
-                        changeNewProduct("productName", event.target.value)}
-                      minLength={2}
-                      maxLength={180}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Brand, optional
-                    <input
-                      value={newProduct.brand}
-                      onChange={(event) => changeNewProduct("brand", event.target.value)}
-                      maxLength={80}
-                    />
-                  </label>
-                </div>
-                <div className="product-code-grid">
-                  <label>
-                    Category
-                    <input
-                      value={newProduct.category}
-                      onChange={(event) =>
-                        changeNewProduct("category", event.target.value)}
-                      minLength={2}
-                      maxLength={80}
-                      placeholder="Cars & Vehicles"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Category code
-                    <input
-                      value={newProduct.categoryCode}
-                      onChange={(event) =>
-                        changeNewProduct(
-                          "categoryCode",
-                          normalizeSkuCode(event.target.value),
-                        )}
-                      minLength={2}
-                      maxLength={3}
-                      placeholder="CAR"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Sub-category
-                    <input
-                      value={newProduct.subcategory}
-                      onChange={(event) =>
-                        changeNewProduct("subcategory", event.target.value)}
-                      minLength={2}
-                      maxLength={80}
-                      placeholder="Remote Control"
-                      required
-                    />
-                  </label>
-                  <label>
-                    Sub-category code
-                    <input
-                      value={newProduct.subcategoryCode}
-                      onChange={(event) =>
-                        changeNewProduct(
-                          "subcategoryCode",
-                          normalizeSkuCode(event.target.value),
-                        )}
-                      minLength={2}
-                      maxLength={3}
-                      placeholder="RC"
-                      required
-                    />
-                  </label>
-                </div>
-                <div className="form-row two-columns">
-                  <label>
-                    Variant, optional
-                    <input
-                      value={newProduct.variantName}
-                      onChange={(event) =>
-                        changeNewProduct("variantName", event.target.value)}
-                      maxLength={80}
-                      placeholder="Red"
-                    />
-                  </label>
-                  <label>
-                    Variant code, optional
-                    <input
-                      value={newProduct.variantCode}
-                      onChange={(event) =>
-                        changeNewProduct(
-                          "variantCode",
-                          normalizeSkuCode(event.target.value, 4),
-                        )}
-                      minLength={2}
-                      maxLength={4}
-                      placeholder="RED"
-                    />
-                  </label>
-                </div>
-                <div className="sku-preview">
-                  <span>Generated SKU preview</span>
-                  <strong>{skuPreview}</strong>
-                </div>
-                <div className="form-row two-columns">
-                  <label>
-                    Supplier barcode, optional
-                    <input
-                      value={newProduct.supplierBarcode}
-                      onChange={(event) =>
-                        changeNewProduct("supplierBarcode", event.target.value)}
-                      maxLength={120}
-                      placeholder="Stored as alternate"
-                    />
-                  </label>
-                  <label>
-                    Primary rack · S1 bottom, S6 top
-                    <select
-                      value={newProduct.rackLocation}
-                      onChange={(event) =>
-                        changeNewProduct("rackLocation", event.target.value)}
-                      required
-                    >
-                      <option value="">Choose rack and shelf</option>
-                      {RACK_CODES.map((rack) => (
-                        <option value={rack} key={rack}>{rack}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <div className="form-row two-columns">
-                  <label>
-                    Unit
-                    <select
-                      value={newProduct.unitOfMeasure}
-                      onChange={(event) =>
-                        changeNewProduct(
-                          "unitOfMeasure",
-                          event.target.value as ProductUnit,
-                        )}
-                    >
-                      {PRODUCT_UNITS.map((unit) => (
-                        <option value={unit} key={unit}>{unit}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Pack size
-                    <input
-                      type="number"
-                      min="1"
-                      max="100000"
-                      value={newProduct.packSize}
-                      onChange={(event) =>
-                        changeNewProduct("packSize", event.target.value)}
-                      required
-                    />
-                  </label>
-                </div>
-                <div className="new-product-price-grid">
-                  <label>
-                    Purchase cost (₹)
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="1000000"
-                      step="0.01"
-                      value={newProduct.purchaseCostRupees}
-                      onChange={(event) =>
-                        changeNewProduct("purchaseCostRupees", event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Retail price (₹)
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="1000000"
-                      step="0.01"
-                      value={newProduct.standardPriceRupees}
-                      onChange={(event) =>
-                        changeNewProduct("standardPriceRupees", event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Wholesale price (₹)
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="1000000"
-                      step="0.01"
-                      value={newProduct.wholesalePriceRupees}
-                      onChange={(event) =>
-                        changeNewProduct("wholesalePriceRupees", event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    MRP (₹)
-                    <input
-                      type="number"
-                      min="0.01"
-                      max="1000000"
-                      step="0.01"
-                      value={newProduct.mrpRupees}
-                      onChange={(event) =>
-                        changeNewProduct("mrpRupees", event.target.value)}
-                      required
-                    />
-                  </label>
-                </div>
-                {newProductFloors && !newProductPricingConflict && (
-                  <div className="price-floor-preview">
-                    <span>
-                      <small>Recommended owner floor</small>
-                      <strong>{formatMoney(newProductFloors.ownerFloorPaise)}</strong>
-                    </span>
-                    <span>
-                      <small>Recommended trusted floor</small>
-                      <strong>
-                        {formatMoney(newProductFloors.trustedOperatorFloorPaise)}
-                      </strong>
-                    </span>
-                    <span>
-                      <small>Recommended store floor</small>
-                      <strong>
-                        {formatMoney(newProductFloors.storeOperatorFloorPaise)}
-                      </strong>
-                    </span>
-                  </div>
-                )}
-                {newProductFloors && !newProductPricingConflict && (
-                  <div className="new-product-price-grid floor-overrides">
-                    <label>
-                      Owner floor override (₹)
-                      <input
-                        type="number"
-                        min="0.01"
-                        max="1000000"
-                        step="0.01"
-                        value={newProduct.ownerFloorRupees}
-                        onChange={(event) =>
-                          changeNewProduct("ownerFloorRupees", event.target.value)}
-                        placeholder={(newProductFloors.ownerFloorPaise / 100).toFixed(2)}
-                      />
-                    </label>
-                    <label>
-                      Trusted floor override (₹)
-                      <input
-                        type="number"
-                        min="0.01"
-                        max="1000000"
-                        step="0.01"
-                        value={newProduct.trustedFloorRupees}
-                        onChange={(event) =>
-                          changeNewProduct("trustedFloorRupees", event.target.value)}
-                        placeholder={
-                          (newProductFloors.trustedOperatorFloorPaise / 100).toFixed(2)
-                        }
-                      />
-                    </label>
-                    <label>
-                      Store floor override (₹)
-                      <input
-                        type="number"
-                        min="0.01"
-                        max="1000000"
-                        step="0.01"
-                        value={newProduct.storeFloorRupees}
-                        onChange={(event) =>
-                          changeNewProduct("storeFloorRupees", event.target.value)}
-                        placeholder={
-                          (newProductFloors.storeOperatorFloorPaise / 100).toFixed(2)
-                        }
-                      />
-                    </label>
-                    <p>
-                      Leave blank to use the recommendation. Overrides still follow
-                      purchase cost and role ordering.
-                    </p>
-                  </div>
-                )}
-                {(newProductPricingConflict || newProductFloorConflict) && (
-                  <p className="inline-validation">
-                    {newProductPricingConflict || newProductFloorConflict}
-                  </p>
-                )}
-                <button
-                  className="complete-button"
-                  type="submit"
-                  disabled={
-                    creatingProduct ||
-                    Boolean(newProductPricingConflict || newProductFloorConflict)
-                  }
-                >
-                  {creatingProduct
-                    ? "Creating safely…"
-                    : "Create with zero stock and select"}
-                </button>
-              </form>
+            <div>
+              <span>Bill number</span>
+              <strong>{lockedBill.invoiceReference || "Not entered"}</strong>
+            </div>
+            {lockedBill.note && (
+              <div className="receive-v2__locked-note">
+                <span>Receipt note</span>
+                <strong>{lockedBill.note}</strong>
+              </div>
             )}
+            <p>Locked for this receipt</p>
           </section>
         )}
 
-        <div className="workspace-grid">
-          <section className="results-panel" aria-labelledby="products-heading">
-            <div className="section-title"><h2 id="products-heading">Existing products</h2><span>{products.length} shown</span></div>
-            <div className="product-list">
-              {products.map((product) => {
-                const onReceipt = receiptLines.find((line) => line.product.id === product.id);
-                return (
-                  <button className={`product-row${selected?.id === product.id ? " selected" : ""}`} type="button" key={product.id} onClick={() => chooseProduct(product)}>
-                    <span className="product-icon" aria-hidden="true">{product.name.slice(0, 1)}</span>
-                    <span className="product-copy"><strong>{product.name}</strong><small>{product.variantName} · {product.sku}</small><small>{product.rackLocation ?? "Rack not set"}</small></span>
-                    <span className="stock-pill">
-                      {onReceipt
-                        ? `${onReceipt.sellableQuantity + onReceipt.openBoxQuantity + onReceipt.damagedQuantity} added`
-                        : `${product.stock} sellable`}
-                    </span>
-                    {(product.openBoxStock !== undefined || product.damagedStock !== undefined) && (
-                      <span className="condition-stock-note">
-                        {product.openBoxStock ?? 0} open box · {product.damagedStock ?? 0} damaged
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="checkout-panel" aria-labelledby="receipt-product-heading">
-            {!selected ? (
-              <div className="empty-state"><span aria-hidden="true">↖</span><h2>Select a delivered product</h2><p>Choose it from the list, then enter quantity and bill cost.</p></div>
-            ) : (
-              <form onSubmit={addReceiptLine}>
-                <div className="selected-product">
-                  <div><p className="eyebrow">Receipt line</p><h2 id="receipt-product-heading">{selected.name}</h2><p>{selected.sku} · {selected.rackLocation}</p></div>
-                  <span className="stock-large">{selected.stock}<small>currently</small></span>
+        {step === "PRODUCTS" && (
+          <div className="receive-v2__product-step">
+            <section className="receive-v2__product-entry" aria-labelledby="product-entry-heading">
+              <header className="receive-v2__product-entry-heading">
+                <div>
+                  <h2 id="product-entry-heading">Add delivered products</h2>
+                  <p>Search, enter the delivered quantities and save each receipt line.</p>
                 </div>
                 {role === "BUSINESS_OWNER" && (
                   <button
                     type="button"
-                    className="manage-product-button"
-                    onClick={() => beginProductChange(selected)}
+                    onClick={() => {
+                      setNewProduct((current) => ({
+                        ...current,
+                        productName: current.productName || query.trim(),
+                      }));
+                      setShowNewProduct(true);
+                      setSearchOpen(false);
+                      setError("");
+                    }}
                   >
-                    Manage current prices and rack
+                    + Create new product
                   </button>
                 )}
-                <div className="condition-quantity-grid">
-                  <label>Sellable<input type="number" min="0" max="5000" value={sellableQuantity} onChange={(event) => setSellableQuantity(Number(event.target.value))} required /></label>
-                  <label>Open box<input type="number" min="0" max="5000" value={openBoxQuantity} onChange={(event) => setOpenBoxQuantity(Number(event.target.value))} required /></label>
-                  <label>Damaged<input type="number" min="0" max="5000" value={damagedQuantity} onChange={(event) => setDamagedQuantity(Number(event.target.value))} required /></label>
+              </header>
+
+              <form
+                className="receive-v2__product-search"
+                onSubmit={findProducts}
+                ref={productSearchRef}
+              >
+                <label htmlFor="product-search">Search catalogue</label>
+                <div className="receive-v2__product-search-control">
+                  <input
+                    id="product-search"
+                    value={query}
+                    placeholder="SKU, barcode or product name"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-expanded={searchOpen && query.trim().length > 0}
+                    aria-controls="receive-product-results"
+                    aria-autocomplete="list"
+                    onFocus={() => {
+                      if (query.trim()) setSearchOpen(true);
+                    }}
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      setSearchOpen(Boolean(event.target.value.trim()));
+                      setSearchActiveIndex(0);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        setSearchOpen(true);
+                        setSearchActiveIndex((current) =>
+                          Math.min(current + 1, Math.max(0, products.length - 1)),
+                        );
+                      } else if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        setSearchActiveIndex((current) => Math.max(0, current - 1));
+                      } else if (
+                        event.key === "Enter" &&
+                        searchOpen &&
+                        products[searchActiveIndex]
+                      ) {
+                        event.preventDefault();
+                        chooseProduct(products[searchActiveIndex]);
+                      } else if (event.key === "Escape") {
+                        setSearchOpen(false);
+                      }
+                    }}
+                  />
+                  <span aria-live="polite">
+                    {loading ? "Searching…" : query.trim() ? `${products.length} found` : "Type to search"}
+                  </span>
                 </div>
-                <label className="unit-cost-field">Cost per unit on this bill (₹)<input type="number" min="0.01" max="1000000" step="0.01" value={unitCostRupees} onChange={(event) => setUnitCostRupees(event.target.value)} required /></label>
-                <p className="condition-guidance">
-                  Use Open box or Damaged only when those units must stay out of normal sale stock.
-                </p>
+                {searchOpen && query.trim() && (
+                  <div
+                    className="receive-v2__product-results"
+                    id="receive-product-results"
+                    role="listbox"
+                  >
+                    {loading ? (
+                      <p>Searching catalogue…</p>
+                    ) : products.length === 0 ? (
+                      <div className="receive-v2__product-no-result">
+                        <div>
+                          <strong>No matching product</strong>
+                          <span>Try another SKU, barcode or product name.</span>
+                        </div>
+                        {role === "BUSINESS_OWNER" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewProduct((current) => ({
+                                ...current,
+                                productName: current.productName || query.trim(),
+                              }));
+                              setShowNewProduct(true);
+                              setSearchOpen(false);
+                            }}
+                          >
+                            Create product
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      products.map((product, index) => {
+                        const onReceipt = receiptLines.find(
+                          (line) => line.product.id === product.id,
+                        );
+                        return (
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={index === searchActiveIndex}
+                            className={index === searchActiveIndex ? "is-active" : ""}
+                            key={product.id}
+                            onPointerMove={() => setSearchActiveIndex(index)}
+                            onClick={() => chooseProduct(product)}
+                          >
+                            <span>
+                              <strong>{product.name}</strong>
+                              <small>{product.sku}</small>
+                            </span>
+                            <span>{product.stock} sellable</span>
+                            {onReceipt && (
+                              <em>
+                                {onReceipt.sellableQuantity +
+                                  onReceipt.openBoxQuantity +
+                                  onReceipt.damagedQuantity}{" "}
+                                on receipt
+                              </em>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </form>
+
+              {!selected ? (
+                <div className="receive-v2__product-empty">
+                  <span aria-hidden="true">↑</span>
+                  <strong>Search and select a delivered product</strong>
+                  <p>Only the selected product will open for quantity and bill-cost entry.</p>
+                </div>
+              ) : (
+                <form className="receive-v2__line-editor" onSubmit={addReceiptLine}>
+                  <header>
+                    <div>
+                      <span>Receipt line</span>
+                      <h2>{selected.name}</h2>
+                      <p>{selected.sku} · {selected.rackLocation ?? "Rack not set"}</p>
+                    </div>
+                    <div className="receive-v2__line-stock">
+                      <strong>{selected.stock}</strong>
+                      <span>currently sellable</span>
+                    </div>
+                  </header>
+                  <div className="condition-quantity-grid">
+                    <label>
+                      Sellable
+                      <input type="number" min="0" max="5000" value={sellableQuantity} onChange={(event) => setSellableQuantity(Number(event.target.value))} required />
+                    </label>
+                    <label>
+                      Open box
+                      <input type="number" min="0" max="5000" value={openBoxQuantity} onChange={(event) => setOpenBoxQuantity(Number(event.target.value))} required />
+                    </label>
+                    <label>
+                      Damaged
+                      <input type="number" min="0" max="5000" value={damagedQuantity} onChange={(event) => setDamagedQuantity(Number(event.target.value))} required />
+                    </label>
+                  </div>
+                  <label className="unit-cost-field">
+                    Purchase cost per unit on this bill (₹)
+                    <input type="number" min="0.01" max="1000000" step="0.01" value={unitCostRupees} onChange={(event) => setUnitCostRupees(event.target.value)} required />
+                  </label>
+                  <p className="condition-guidance">
+                    Open-box and damaged units remain outside normal sellable stock.
+                  </p>
+                  <div className="receive-v2__line-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelected(null);
+                        setSellableQuantity(1);
+                        setOpenBoxQuantity(0);
+                        setDamagedQuantity(0);
+                        setUnitCostRupees("");
+                      }}
+                    >
+                      Close
+                    </button>
+                    <button
+                      className="complete-button"
+                      type="submit"
+                      disabled={
+                        sellableQuantity + openBoxQuantity + damagedQuantity < 1 ||
+                        invoiceUnitCostPaise < 1
+                      }
+                    >
+                      {receiptLines.some((line) => line.product.id === selected.id)
+                        ? "Save line changes"
+                        : "Add product to receipt"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </section>
+
+            <aside className="receive-v2__receipt-lines" aria-labelledby="receipt-lines-heading">
+              <header>
+                <div>
+                  <h2 id="receipt-lines-heading">Products on this receipt</h2>
+                  <p>Edit any line before the final check.</p>
+                </div>
+                <span>{receiptLines.length} products · {receiptQuantity} units</span>
+              </header>
+              {receiptLines.length === 0 ? (
+                <div className="receive-v2__receipt-empty">No products added yet.</div>
+              ) : (
+                <div className="receive-v2__receipt-list">
+                  {receiptLines.map((line) => {
+                    const lineQuantity =
+                      line.sellableQuantity + line.openBoxQuantity + line.damagedQuantity;
+                    return (
+                      <article key={line.product.id}>
+                        <div>
+                          <strong>{line.product.name}</strong>
+                          <small>{line.product.sku}</small>
+                        </div>
+                        <span>
+                          {lineQuantity} units · {formatMoney(line.invoiceUnitCostPaise)} each
+                        </span>
+                        <strong>{formatMoney(lineQuantity * line.invoiceUnitCostPaise)}</strong>
+                        <div>
+                          <button type="button" onClick={() => chooseProduct(line.product)}>Edit</button>
+                          <button type="button" onClick={() => removeReceiptLine(line.product.id)}>Remove</button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+              <footer>
+                <div>
+                  <span>{receiptLines.length} products · {receiptQuantity} units</span>
+                  <strong>{formatMoney(receiptValuePaise)}</strong>
+                </div>
                 <button
                   className="complete-button"
-                  type="submit"
-                  disabled={
-                    sellableQuantity + openBoxQuantity + damagedQuantity < 1 ||
-                    invoiceUnitCostPaise < 1
-                  }
+                  type="button"
+                  disabled={receiptLines.length === 0}
+                  onClick={() => {
+                    setSelected(null);
+                    setStep("CONFIRM");
+                    setError("");
+                    setMessage("");
+                  }}
                 >
-                  {receiptLines.some((line) => line.product.id === selected.id)
-                    ? "Update this product"
-                    : "Add to receipt"}
+                  Review receipt
                 </button>
-              </form>
-            )}
-          </section>
-        </div>
+              </footer>
+            </aside>
+          </div>
+        )}
 
-        {role === "BUSINESS_OWNER" && managedProduct && productChange && (
-          <section
-            className="product-change-panel"
-            aria-labelledby="product-change-heading"
-          >
-            <div className="section-title">
+        {step === "CONFIRM" && lockedBill && (
+          <section className="receive-v2__confirm" aria-labelledby="confirm-receipt-heading">
+            <header className="receive-v2__confirm-header">
               <div>
-                <p className="eyebrow">Owner-only change</p>
-                <h2 id="product-change-heading">
-                  Manage {managedProduct.name}
-                </h2>
-                <p>{managedProduct.sku}</p>
+                <p className="eyebrow">Final check</p>
+                <h2 id="confirm-receipt-heading">Confirm this stock receipt</h2>
+                <p>
+                  Check every quantity and bill cost. Stock changes only after the final button.
+                </p>
               </div>
+              <button type="button" onClick={() => setStep("PRODUCTS")}>
+                Back to products
+              </button>
+            </header>
+
+            <div className="receive-v2__confirm-body">
+              <div className="receive-v2__confirm-lines">
+                {receiptLines.map((line) => {
+                  const lineQuantity = line.sellableQuantity + line.openBoxQuantity + line.damagedQuantity;
+                  return (
+                    <article key={line.product.id}>
+                      <div>
+                        <strong>{line.product.name}</strong>
+                        <small>{line.product.sku}</small>
+                      </div>
+                      <span>
+                        {line.sellableQuantity} sellable · {line.openBoxQuantity} open box · {line.damagedQuantity} damaged
+                      </span>
+                      <span>
+                        {lineQuantity} × {formatMoney(line.invoiceUnitCostPaise)}
+                      </span>
+                      <strong>{formatMoney(lineQuantity * line.invoiceUnitCostPaise)}</strong>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <aside className="receive-v2__confirm-summary">
+                <div>
+                  <span>Supplier</span>
+                  <strong>{lockedBill.supplierName}</strong>
+                </div>
+                <div>
+                  <span>Bill number</span>
+                  <strong>{lockedBill.invoiceReference || "Not entered"}</strong>
+                </div>
+                <div className="receive-v2__condition-summary">
+                  <span><small>Sellable</small><strong>{receiptSellableQuantity}</strong></span>
+                  <span><small>Open box</small><strong>{receiptOpenBoxQuantity}</strong></span>
+                  <span><small>Damaged</small><strong>{receiptDamagedQuantity}</strong></span>
+                </div>
+                <div className="receive-v2__confirm-total">
+                  <span>{receiptLines.length} products · {receiptQuantity} units</span>
+                  <strong>{formatMoney(receiptValuePaise)}</strong>
+                </div>
+
+                {duplicateWarning && (
+                  <div className="duplicate-warning" role="alert">
+                    <strong>Possible duplicate supplier bill</strong>
+                    <p>{duplicateWarning}</p>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={duplicateAcknowledged}
+                        onChange={(event) => setDuplicateAcknowledged(event.target.checked)}
+                      />
+                      I checked the earlier receipt and this entry is intentional.
+                    </label>
+                  </div>
+                )}
+
+                <div className="receive-v2__atomic-note">
+                  <strong>One safe transaction</strong>
+                  <span>
+                    If completion fails, none of these stock quantities are applied. You can try again without a partial receipt.
+                  </span>
+                </div>
+
+                <button
+                  className="complete-button"
+                  type="button"
+                  disabled={
+                    submitting ||
+                    receiptLines.length === 0 ||
+                    Boolean(duplicateWarning && !duplicateAcknowledged)
+                  }
+                  onClick={saveReceipt}
+                >
+                  {submitting
+                    ? role === "BUSINESS_OWNER" ? "Posting receipt…" : "Saving receipt…"
+                    : role === "BUSINESS_OWNER"
+                      ? `Confirm and add ${receiptQuantity} units`
+                      : "Send receipt for owner review"}
+                </button>
+              </aside>
+            </div>
+          </section>
+        )}
+
+        <Modal
+          open={showNewProduct}
+          title="Create a new product"
+          description="Save its catalogue details once, then add the delivered quantity to this receipt."
+          onClose={requestCloseNewProduct}
+          panelClassName="receive-v2__new-product-modal"
+          footer={(
+            <div className="receive-v2__new-product-actions">
               <button
                 type="button"
-                className="text-button"
-                onClick={() => {
-                  setManagedProduct(null);
-                  setProductChange(null);
-                  setError("");
-                }}
+                onClick={requestCloseNewProduct}
               >
-                Cancel
+                Close
+              </button>
+              <button
+                className="complete-button"
+                type="submit"
+                form="receive-new-product-form"
+                disabled={
+                  creatingProduct ||
+                  Boolean(
+                    newProductPricingConflict ||
+                    newProductFloorConflict ||
+                    newProductVariantConflict
+                  )
+                }
+              >
+                {creatingProduct ? "Creating product…" : "Create product and continue"}
               </button>
             </div>
-            <div className="change-safety-note">
-              <strong>Stock quantities will not change.</strong>
-              <span>
-                Saving prices closes the old version and starts a new one.
-                Historical sales keep their original snapshots.
-              </span>
-            </div>
-            <form className="product-change-form" onSubmit={saveExistingProduct}>
-              <div className="product-change-facts">
-                <span>
-                  <small>Sellable stock</small>
-                  <strong>{managedProduct.stock}</strong>
-                </span>
-                <span>
-                  <small>Replacement cost</small>
-                  <strong>
-                    {formatMoney(managedProduct.latestLandedCostPaise ?? 0)}
-                  </strong>
-                </span>
-                <span>
-                  <small>Current rack</small>
-                  <strong>{managedProduct.rackLocation}</strong>
-                </span>
+          )}
+        >
+          <form
+            id="receive-new-product-form"
+            className="receive-v2__new-product-form"
+            onSubmit={createNewProduct}
+          >
+            <section className="receive-v2__new-product-section">
+              <header><div><h3>Product details</h3><p>Codes are assigned automatically from your catalogue choices.</p></div></header>
+              <div className="receive-v2__new-product-grid is-core">
+                <label>Product name<input value={newProduct.productName} onChange={(event) => changeNewProduct("productName", event.target.value)} maxLength={160} autoFocus required /></label>
+                <label><span className="receive-v2__field-label">Brand <em>Optional</em></span><CreatableCombobox value={newProduct.brand} options={brandOptions} onChange={(value) => changeNewProduct("brand", value)} ariaLabel="Brand" placeholder="Choose or create brand" /></label>
+                <label>Category<CreatableCombobox value={newProduct.category} options={categoryOptions} onChange={chooseCategory} ariaLabel="Category" placeholder="Choose or create category" /></label>
+                <label>Sub-category<CreatableCombobox value={newProduct.subcategory} options={subcategoryOptions} onChange={chooseSubcategory} ariaLabel="Sub-category" placeholder="Choose or create sub-category" /></label>
               </div>
-              <label>
-                Primary rack · S1 bottom, S6 top
-                <select
-                  value={productChange.rackLocation}
-                  onChange={(event) =>
-                    changeExistingProduct("rackLocation", event.target.value)}
-                  required
-                >
-                  {RACK_CODES.map((rack) => (
-                    <option value={rack} key={rack}>{rack}</option>
+              <div className="receive-v2__sku-preview"><span>SKU preview</span><strong>{skuBasePreview}</strong></div>
+            </section>
+
+            <section className="receive-v2__new-product-section">
+              <header className="receive-v2__variant-heading">
+                <div><h3>Variants</h3><p>Create one catalogue product with separate SKUs for colours, sizes or models.</p></div>
+                <label className="receive-v2__variant-toggle"><input type="checkbox" checked={newProduct.hasVariants} onChange={(event) => setHasVariants(event.target.checked)} /><span>Contains variants</span></label>
+              </header>
+              {newProduct.hasVariants && (
+                <div className="receive-v2__variant-table">
+                  <div className="receive-v2__variant-labels"><span>Variant name</span><span>Code</span><span>SKU preview</span><span /></div>
+                  {newProduct.variants.map((variant) => (
+                    <div className="receive-v2__variant-row" key={variant.id}>
+                      <input aria-label="Variant name" value={variant.name} placeholder="Example: Red" onChange={(event) => changeVariant(variant.id, "name", event.target.value)} required />
+                      <input aria-label="Variant code" className="is-code" value={variant.code} placeholder="RED" maxLength={4} onChange={(event) => changeVariant(variant.id, "code", event.target.value)} required />
+                      <code>{skuBasePreview}-{normalizeSkuCode(variant.code, 4) || "CODE"}</code>
+                      <button type="button" aria-label="Remove variant" disabled={newProduct.variants.length === 1} onClick={() => removeVariant(variant.id)}>×</button>
+                    </div>
                   ))}
-                </select>
-              </label>
-              <div className="new-product-price-grid">
+                  <button className="receive-v2__add-variant" type="button" onClick={addVariant}>＋ Add variant row</button>
+                  {newProductVariantConflict && <p className="receive-v2__new-product-error" role="alert">Every variant needs a name and a unique 2–4 character code.</p>}
+                </div>
+              )}
+            </section>
+
+            <section className="receive-v2__new-product-section">
+              <header><div><h3>Pricing details</h3><p>MRP starts at 2.5× purchase cost. You can overwrite it.</p></div></header>
+              <div className="receive-v2__new-product-grid is-pricing">
+                <label>Unit type<CustomSelect value={newProduct.unitOfMeasure} ariaLabel="Unit type" options={PRODUCT_UNITS.map((unit) => ({ value: unit, label: unit === "UNIT" ? "Individual unit" : unit.toLocaleLowerCase("en-IN").replace(/^./, (letter) => letter.toUpperCase()) }))} onChange={(value) => changeNewProduct("unitOfMeasure", value as ProductUnit)} required /></label>
                 <label>
-                  Retail price (₹)
+                  Purchase cost (₹)
                   <input
                     type="number"
                     min="0.01"
                     max="1000000"
                     step="0.01"
-                    value={productChange.standardPriceRupees}
+                    value={newProduct.purchaseCostRupees}
+                    onChange={(event) => changePurchaseCost(event.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  Retail selling price (₹)
+                  <input
+                    type="number"
+                    min="0.01"
+                    max="1000000"
+                    step="0.01"
+                    value={newProduct.standardPriceRupees}
                     onChange={(event) =>
-                      changeExistingProduct(
-                        "standardPriceRupees",
-                        event.target.value,
-                      )}
+                      changeNewProduct("standardPriceRupees", event.target.value)
+                    }
                     required
                   />
                 </label>
@@ -1396,12 +1515,10 @@ export default function ReceiveWorkspace({
                     min="0.01"
                     max="1000000"
                     step="0.01"
-                    value={productChange.wholesalePriceRupees}
+                    value={newProduct.wholesalePriceRupees}
                     onChange={(event) =>
-                      changeExistingProduct(
-                        "wholesalePriceRupees",
-                        event.target.value,
-                      )}
+                      changeNewProduct("wholesalePriceRupees", event.target.value)
+                    }
                     required
                   />
                 </label>
@@ -1412,235 +1529,58 @@ export default function ReceiveWorkspace({
                     min="0.01"
                     max="1000000"
                     step="0.01"
-                    value={productChange.mrpRupees}
-                    onChange={(event) =>
-                      changeExistingProduct("mrpRupees", event.target.value)}
-                    required
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={() => {
-                    const floors = recommendedPriceFloors(
-                      managedProduct.latestLandedCostPaise ?? 0,
-                      changedWholesalePricePaise,
-                    );
-                    setProductChange((current) => current ? {
-                      ...current,
-                      ownerFloorRupees:
-                        (floors.ownerFloorPaise / 100).toFixed(2),
-                      trustedFloorRupees:
-                        (floors.trustedOperatorFloorPaise / 100).toFixed(2),
-                      storeFloorRupees:
-                        (floors.storeOperatorFloorPaise / 100).toFixed(2),
-                    } : current);
-                  }}
-                >
-                  Recalculate recommended floors
-                </button>
-              </div>
-              <div className="new-product-price-grid">
-                <label>
-                  Owner floor (₹)
-                  <input
-                    type="number"
-                    min="0.01"
-                    max="1000000"
-                    step="0.01"
-                    value={productChange.ownerFloorRupees}
-                    onChange={(event) =>
-                      changeExistingProduct(
-                        "ownerFloorRupees",
-                        event.target.value,
-                      )}
-                    required
-                  />
-                </label>
-                <label>
-                  Trusted-operator floor (₹)
-                  <input
-                    type="number"
-                    min="0.01"
-                    max="1000000"
-                    step="0.01"
-                    value={productChange.trustedFloorRupees}
-                    onChange={(event) =>
-                      changeExistingProduct(
-                        "trustedFloorRupees",
-                        event.target.value,
-                      )}
-                    required
-                  />
-                </label>
-                <label>
-                  Store-operator floor (₹)
-                  <input
-                    type="number"
-                    min="0.01"
-                    max="1000000"
-                    step="0.01"
-                    value={productChange.storeFloorRupees}
-                    onChange={(event) =>
-                      changeExistingProduct(
-                        "storeFloorRupees",
-                        event.target.value,
-                      )}
+                    value={newProduct.mrpRupees}
+                    onChange={(event) => { setMrpManuallyEdited(true); changeNewProduct("mrpRupees", event.target.value); }}
                     required
                   />
                 </label>
               </div>
-              <div className="form-row two-columns">
-                <label>
-                  Change reason
-                  <select
-                    value={productChange.reason}
-                    onChange={(event) =>
-                      changeExistingProduct(
-                        "reason",
-                        event.target.value as ProductChangeReason,
-                      )}
-                  >
-                    {PRODUCT_CHANGE_REASONS.map((reason) => (
-                      <option value={reason} key={reason}>
-                        {PRODUCT_CHANGE_REASON_LABELS[reason]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  {productChange.reason === "OTHER"
-                    ? "Required explanation"
-                    : "Change note, optional"}
-                  <input
-                    value={productChange.note}
-                    onChange={(event) =>
-                      changeExistingProduct("note", event.target.value)}
-                    maxLength={500}
-                    required={productChange.reason === "OTHER"}
-                  />
-                </label>
-              </div>
-              {(existingProductPricingConflict ||
-                existingProductFloorConflict ||
-                existingProductNoteConflict) && (
-                <p className="inline-validation">
-                  {existingProductPricingConflict ||
-                    existingProductFloorConflict ||
-                    existingProductNoteConflict}
+              {(newProductPricingConflict || newProductFloorConflict || error) && (
+                <p className="receive-v2__new-product-error" role="alert">
+                  {newProductPricingConflict || newProductFloorConflict || error}
                 </p>
               )}
-              {!existingProductHasChanges && (
-                <p className="change-neutral-note">
-                  Change a price or select a different rack before saving.
-                </p>
-              )}
-              <button
-                className="complete-button"
-                type="submit"
-                disabled={
-                  savingProductChange ||
-                  !existingProductHasChanges ||
-                  Boolean(
-                    existingProductPricingConflict ||
-                    existingProductFloorConflict ||
-                    existingProductNoteConflict,
-                  )
-                }
-              >
-                {savingProductChange
-                  ? "Saving version safely…"
-                  : "Save new price/rack version"}
-              </button>
-            </form>
-          </section>
-        )}
+            </section>
+          </form>
+        </Modal>
 
+        <Modal
+          open={showCloseProductDraft}
+          title="Close this form?"
+          description="Your entered product details will stay saved here and will be restored when you reopen the form."
+          onClose={() => setShowCloseProductDraft(false)}
+          panelClassName="receive-v2__cancel-modal"
+        >
+          <div className="receive-v2__cancel-modal-actions">
+            <button type="button" onClick={() => setShowCloseProductDraft(false)}>Keep editing</button>
+            <button type="button" onClick={() => { setShowCloseProductDraft(false); setShowNewProduct(false); setError(""); }}>Close and keep draft</button>
           </div>
-        <section className="receipt-builder" aria-labelledby="receipt-builder-heading">
-          <div className="section-title">
-            <div>
-              <h2 id="receipt-builder-heading">Receipt summary</h2>
-              <p>Check before stock changes.</p>
-            </div>
-            <span>{receiptLines.length} product lines · {receiptQuantity} units</span>
-          </div>
-          {receiptLines.length === 0 ? (
-            <div className="draft-empty">No products added yet.</div>
-          ) : (
-            <div className="receipt-line-list">
-              {receiptLines.map((line) => (
-                <article className="receipt-line-card" key={line.product.id}>
-                  <div>
-                    <strong>{line.product.name}</strong>
-                    <small>{line.product.sku} · {line.product.stock} currently</small>
-                  </div>
-                  <span className="condition-breakdown">
-                    {line.sellableQuantity} sellable · {line.openBoxQuantity} open box · {line.damagedQuantity} damaged
-                  </span>
-                  <strong>
-                    {formatMoney(
-                      (line.sellableQuantity + line.openBoxQuantity + line.damagedQuantity)
-                      * line.invoiceUnitCostPaise,
-                    )}
-                  </strong>
-                  <div className="line-actions">
-                    <button type="button" onClick={() => chooseProduct(line.product)}>Edit</button>
-                    <button type="button" onClick={() => removeReceiptLine(line.product.id)}>Remove</button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-          <div className="receipt-totals condition-totals">
-            <span><small>Sellable</small><strong>{receiptSellableQuantity}</strong></span>
-            <span><small>Open box</small><strong>{receiptOpenBoxQuantity}</strong></span>
-            <span><small>Damaged</small><strong>{receiptDamagedQuantity}</strong></span>
-            <span><small>Stock purchase value</small><strong>{formatMoney(receiptValuePaise)}</strong></span>
-            <span className="stock-effect-total">
-              <small>{role === "BUSINESS_OWNER" ? "Added to sellable stock" : "Stock effect now"}</small>
-              <strong>
-                {role === "BUSINESS_OWNER"
-                  ? `+${receiptSellableQuantity} sellable`
-                  : "0 (Draft)"}
-              </strong>
-            </span>
-          </div>
-          {duplicateWarning && (
-            <div className="duplicate-warning" role="alert">
-              <strong>Possible duplicate supplier bill</strong>
-              <p>{duplicateWarning}</p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={duplicateAcknowledged}
-                  onChange={(event) => setDuplicateAcknowledged(event.target.checked)}
-                />
-                I checked the earlier receipt and this entry is intentional.
-              </label>
-            </div>
-          )}
-          <button
-            className="complete-button"
-            type="button"
-            disabled={
-              submitting ||
-              !supplierId ||
-              receiptLines.length === 0 ||
-              Boolean(duplicateWarning && !duplicateAcknowledged)
-            }
-            onClick={saveReceipt}
-          >
-            {submitting
-              ? role === "BUSINESS_OWNER" ? "Completing safely…" : "Saving draft…"
-              : role === "BUSINESS_OWNER"
-                ? `Add ${receiptQuantity} units to stock`
-                : "Send receipt for owner review"}
-          </button>
-        </section>
-        </div>
+        </Modal>
 
-        {drafts.length > 0 && (
+        <Modal
+          open={showCancelReceipt}
+          title="Cancel this receipt?"
+          description="The supplier, bill and every added product will be removed from this unfinished receipt. Recorded stock will not change."
+          onClose={() => setShowCancelReceipt(false)}
+          panelClassName="receive-v2__cancel-modal"
+        >
+          <div className="receive-v2__cancel-modal-actions">
+            <button type="button" onClick={() => setShowCancelReceipt(false)}>
+              Keep working
+            </button>
+            <button type="button" className="is-danger" onClick={cancelReceipt}>
+              Cancel receipt and start over
+            </button>
+          </div>
+        </Modal>
+
+        <Modal
+          open={showDrafts}
+          title={role === "BUSINESS_OWNER" ? "Receipts awaiting review" : "Drafts awaiting owner"}
+          description="Open supplier receipts that have not changed stock yet."
+          onClose={() => setShowDrafts(false)}
+          panelClassName="receive-v2__draft-modal"
+        >
           <section className="draft-receipts" aria-labelledby="draft-receipts-heading">
           <div className="section-title">
             <h2 id="draft-receipts-heading">
@@ -1702,7 +1642,7 @@ export default function ReceiveWorkspace({
               ))}
             </div>
           </section>
-        )}
+        </Modal>
       </section>
     </AppShell>
   );

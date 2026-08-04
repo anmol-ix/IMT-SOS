@@ -8,6 +8,7 @@ import { getDatabase, inTransaction } from "./database";
 import { IdempotencyConflictError } from "./proof-command";
 import { ProductUnavailableError } from "./complete-sale";
 import { roundedAverageUnitCost } from "./inventory-costing";
+import { createReceiptInventoryLot } from "./inventory-lots";
 
 export type StockReceiptLineInput = {
   variantId: string;
@@ -119,6 +120,7 @@ type DraftRow = {
 };
 
 type ReceiptLineRow = {
+  id: string;
   variant_id: string;
   product_name: string;
   sku: string;
@@ -501,6 +503,15 @@ async function finishReceipt(
         line.variant_id,
       ],
     );
+    await createReceiptInventoryLot(client, {
+      businessId: user.businessId,
+      locationId: line.location_id,
+      variantId: line.variant_id,
+      receiptLineId: line.id,
+      quantity: sellableQuantity,
+      unitCostPaise: unitCost,
+      receivedAt: new Date(),
+    });
     await insertReceiptMovement(
       client,
       user,
@@ -763,7 +774,7 @@ export async function completeStockReceiptDraft(
     if (!header) throw new StockReceiptUnavailableError();
 
     const lines = await client.query<ReceiptLineRow>(
-      `SELECT l.variant_id, p.name AS product_name, v.sku, r.location_id,
+      `SELECT l.id, l.variant_id, p.name AS product_name, v.sku, r.location_id,
               l.quantity_received, l.sellable_quantity, l.open_box_quantity,
               l.damaged_quantity, l.invoice_unit_cost_paise
          FROM stock_receipt_lines l
@@ -870,7 +881,7 @@ export async function completeStockReceipt(
     const receiptLines: ReceiptLineRow[] = [];
     for (const line of input.lines) {
       const product = products.get(line.variantId)!;
-      await client.query(
+      const receiptLine = await client.query<{ id: string }>(
         `INSERT INTO stock_receipt_lines
            (receipt_id, variant_id, quantity_received, sellable_quantity,
             open_box_quantity, damaged_quantity, invoice_unit_cost_paise,
@@ -878,7 +889,8 @@ export async function completeStockReceipt(
          VALUES (
            $1, $2, $3::integer + $4::integer + $5::integer,
            $3, $4, $5, $6, $7
-         )`,
+         )
+         RETURNING id`,
         [
           receiptId,
           line.variantId,
@@ -890,6 +902,7 @@ export async function completeStockReceipt(
         ],
       );
       receiptLines.push({
+        id: receiptLine.rows[0].id,
         variant_id: line.variantId,
         product_name: product.product_name,
         sku: product.sku,

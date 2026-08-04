@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
+import CustomSelect from "@/components/ui/CustomSelect";
 import PageHeader from "@/components/ui/PageHeader";
 
 type Approval = {
@@ -630,9 +631,12 @@ export default function ApprovalsWorkspace({
 
                 <div className="form-row two-columns">
                   <label>Reason for approval
-                    <select value={reason} onChange={(event) => setReason(event.target.value)}>
-                      {reasons.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
+                    <CustomSelect
+                      value={reason}
+                      ariaLabel="Reason for approval"
+                      options={reasons.map(([value, label]) => ({ value, label }))}
+                      onChange={setReason}
+                    />
                   </label>
                   <label>{reason === "OTHER" ? "Required owner note" : "Optional owner note"}
                     <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} />

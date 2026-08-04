@@ -3,6 +3,7 @@ import "server-only";
 import type { CurrentUser } from "./auth/current-user";
 import { getDatabase } from "./database";
 import type { StockCondition } from "@/shared/stock-adjustment-policy";
+import { applyMarkup } from "@/shared/fifo-inventory";
 
 export type InventoryMovementView = {
   id: string;
@@ -45,6 +46,17 @@ export type InventorySaleView = {
   happenedAt: string;
 };
 
+export type InventoryLotView = {
+  id: string;
+  sourceType: "OPENING_BALANCE" | "RECEIPT" | "ADJUSTMENT";
+  sourceLabel: string;
+  originalQuantity: number;
+  remainingQuantity: number;
+  unitCostPaise?: number;
+  suggestedWholesalePricePaise: number;
+  receivedAt: string;
+};
+
 export type InventoryHistoryView = {
   product: {
     id: string;
@@ -69,6 +81,7 @@ export type InventoryHistoryView = {
   weightedAverageCostPaise?: number;
   latestLandedCostPaise?: number;
   movementCount: number;
+  fifoLots: InventoryLotView[];
   movements: InventoryMovementView[];
   purchases: InventoryPurchaseView[];
   sales: InventorySaleView[];
@@ -167,7 +180,7 @@ export async function getInventoryHistory(
   const current = product.rows[0];
   if (!current) throw new InventoryHistoryUnavailableError();
 
-  const [ledger, movements, count, purchases, sales] = await Promise.all([
+  const [ledger, movements, count, fifoLots, purchases, sales] = await Promise.all([
     database.query<{ stock_condition: string; quantity: number }>(
       `SELECT stock_condition, COALESCE(sum(quantity_delta), 0)::int AS quantity
          FROM inventory_movements
@@ -217,6 +230,36 @@ export async function getInventoryHistory(
       `SELECT count(*)::int AS count
          FROM inventory_movements
         WHERE business_id = $1 AND variant_id = $2`,
+      [user.businessId, variantId],
+    ),
+    database.query<{
+      id: string;
+      source_type: "OPENING_BALANCE" | "RECEIPT" | "ADJUSTMENT";
+      source_label: string | null;
+      original_quantity: number;
+      remaining_quantity: number;
+      unit_cost_paise: string;
+      received_at: Date;
+    }>(
+      `SELECT
+         lot.id, lot.source_type, lot.original_quantity,
+         lot.remaining_quantity, lot.unit_cost_paise, lot.received_at,
+         COALESCE(
+           receipt.receipt_number,
+           CASE WHEN adjustment.id IS NOT NULL
+             THEN 'Count ' || upper(left(adjustment.id::text, 8))
+           END,
+           'Opening stock'
+         ) AS source_label
+       FROM inventory_lots lot
+       LEFT JOIN stock_receipt_lines receipt_line
+         ON lot.source_type = 'RECEIPT' AND receipt_line.id = lot.source_id
+       LEFT JOIN stock_receipts receipt ON receipt.id = receipt_line.receipt_id
+       LEFT JOIN stock_adjustments adjustment
+         ON lot.source_type = 'ADJUSTMENT' AND adjustment.id = lot.source_id
+       WHERE lot.business_id = $1 AND lot.variant_id = $2
+         AND lot.remaining_quantity > 0
+       ORDER BY lot.received_at, lot.id`,
       [user.businessId, variantId],
     ),
     database.query<{
@@ -332,6 +375,18 @@ export async function getInventoryHistory(
         }
       : {}),
     movementCount: count.rows[0].count,
+    fifoLots: fifoLots.rows.map((row) => ({
+      id: row.id,
+      sourceType: row.source_type,
+      sourceLabel: row.source_label ?? "Stock layer",
+      originalQuantity: row.original_quantity,
+      remainingQuantity: row.remaining_quantity,
+      ...(user.role === "BUSINESS_OWNER"
+        ? { unitCostPaise: Number(row.unit_cost_paise) }
+        : {}),
+      suggestedWholesalePricePaise: applyMarkup(Number(row.unit_cost_paise)),
+      receivedAt: row.received_at.toISOString(),
+    })),
     movements: movements.rows.map((row) => ({
       id: row.id,
       movementType: row.movement_type,

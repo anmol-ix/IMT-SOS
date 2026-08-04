@@ -5,7 +5,7 @@ import type { PoolClient } from "pg";
 import type { CurrentUser } from "./auth/current-user";
 import { requireRole } from "./auth/roles";
 import { getDatabase, inTransaction } from "./database";
-import { allocateWeightedAverageCost } from "./inventory-costing";
+import { consumeFifoInventory } from "./inventory-lots";
 import {
   minimumPriceForRole,
   priceNeedsApproval,
@@ -13,6 +13,7 @@ import {
   type PriceExceptionReason,
   requireExceptionReason,
 } from "./sale-policy";
+import { minimumGrowthPrice } from "@/shared/product-setup-policy";
 
 export type PriceApprovalStatus =
   | "PENDING"
@@ -148,11 +149,16 @@ function view(row: ApprovalRow, includeCosts: boolean): PriceApprovalView {
 
 function currentPrice(row: ProductContext) {
   const latestCost = Number(row.latest_landed_cost_paise);
+  const standardPricePaise = Number(row.standard_price_paise);
+  const minimumPricePaise = Math.min(
+    standardPricePaise,
+    minimumGrowthPrice(latestCost),
+  );
   return {
-    standardPricePaise: Number(row.standard_price_paise),
-    ownerFloorPaise: Math.max(Number(row.owner_floor_paise), latestCost),
-    trustedOperatorFloorPaise: Math.max(Number(row.trusted_operator_floor_paise), latestCost),
-    storeOperatorFloorPaise: Math.max(Number(row.store_operator_floor_paise), latestCost),
+    standardPricePaise,
+    ownerFloorPaise: minimumPricePaise,
+    trustedOperatorFloorPaise: minimumPricePaise,
+    storeOperatorFloorPaise: minimumPricePaise,
   };
 }
 
@@ -170,7 +176,7 @@ export async function requestPriceApproval(
       [user.id],
     );
 
-    const product = await client.query<ProductContext>(`${productSql} FOR SHARE OF ib`, [
+    const product = await client.query<ProductContext>(`${productSql} FOR UPDATE OF ib`, [
       input.variantId,
       user.businessId,
     ]);
@@ -200,13 +206,16 @@ export async function requestPriceApproval(
     );
     if (existing.rows[0]) return view(existing.rows[0], false);
 
-    const expectedAccountingCogsPaise = Number(
-      allocateWeightedAverageCost(
-        BigInt(row.inventory_value_paise),
-        row.quantity_on_hand,
-        input.quantity,
-      ),
-    );
+    const expectedAccountingCogsPaise = (
+      await consumeFifoInventory(client, {
+        businessId: user.businessId,
+        locationId: row.location_id,
+        variantId: row.variant_id,
+        quantityOnHand: row.quantity_on_hand,
+        inventoryValuePaise: Number(row.inventory_value_paise),
+        quantity: input.quantity,
+      })
+    ).totalCostPaise;
     const expectedReplacementCostPaise =
       Number(row.latest_landed_cost_paise) * input.quantity;
     const id = randomUUID();
@@ -344,13 +353,16 @@ export async function decidePriceApproval(
           "Stock or pricing changed. Ask the operator to request approval again.",
         );
       }
-      const expectedAccountingCogsPaise = Number(
-        allocateWeightedAverageCost(
-          BigInt(row.inventory_value_paise),
-          row.quantity_on_hand,
-          approval.quantity,
-        ),
-      );
+      const expectedAccountingCogsPaise = (
+        await consumeFifoInventory(client, {
+          businessId: user.businessId,
+          locationId: row.location_id,
+          variantId: row.variant_id,
+          quantityOnHand: row.quantity_on_hand,
+          inventoryValuePaise: Number(row.inventory_value_paise),
+          quantity: approval.quantity,
+        })
+      ).totalCostPaise;
       if (
         row.price_version_id !== approval.price_version_id ||
         row.standard_price_paise !== approval.standard_price_paise ||

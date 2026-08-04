@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import Image from "next/image";
 import {
   readOfflineCatalog,
   saveOfflineCatalog,
@@ -33,8 +34,15 @@ import {
   type OfflineSaleCommand,
   type OfflineSalePaymentMode,
 } from "@/shared/offline-sale";
+import {
+  copyReceiptImage,
+  downloadReceiptImage,
+  downloadReceiptPdf,
+  receiptSavings,
+} from "@/client/receipt-export";
 import BarcodeScanner from "./BarcodeScanner";
 import AppShell from "@/components/AppShell";
+import CustomSelect from "@/components/ui/CustomSelect";
 import PageHeader from "@/components/ui/PageHeader";
 import Modal from "@/components/ui/Modal";
 
@@ -50,7 +58,13 @@ type Product = {
   mrpPaise: number;
   standardPricePaise: number;
   wholesalePricePaise?: number;
+  wholesaleFifoLots?: Array<{
+    quantity: number;
+    unitCostPaise: number;
+    suggestedUnitPricePaise: number;
+  }>;
   minimumPricePaise: number;
+  suggestedMinimumPricePaise?: number;
   inventoryValuePaise?: number;
   latestLandedCostPaise?: number;
   weightedAverageCostPaise?: number;
@@ -75,7 +89,7 @@ type PriceApproval = {
 type Customer = {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   locality: string | null;
   email: string | null;
   totalOrders: number;
@@ -100,11 +114,16 @@ type SaleReceipt = {
     amountPaise: number;
   }>;
   totalPaise: number;
+  amountPaidPaise: number;
+  balanceDuePaise: number;
+  dueReason: "CUSTOMER_WILL_PAY_LATER" | "DIGITAL_PAYMENT_PENDING" | null;
   lines: Array<{
     variantId: string;
     productName: string;
     sku: string;
     quantity: number;
+    mrpPaise?: number;
+    listedPricePaise?: number;
     unitPricePaise: number;
     totalPaise: number;
   }>;
@@ -114,6 +133,7 @@ type CartLine = {
   product: Product;
   quantity: number;
   unitPricePaise: number;
+  usesSuggestedPrice: boolean;
   approval: PriceApproval | null;
   exceptionMode: boolean;
   exceptionReason: string;
@@ -122,12 +142,16 @@ type CartLine = {
 
 type SaleType = "RETAIL" | "WHOLESALE";
 
-const exceptionReasons = [
-  ["CLEARANCE", "Clearance"],
-  ["DAMAGED_PACKAGING", "Damaged packaging / open box"],
-  ["CUSTOMER_SERVICE_RECOVERY", "Customer-service recovery"],
-  ["PRICING_CORRECTION", "Pricing correction"],
-  ["OTHER", "Other"],
+const paymentOptions = [
+  { value: "UPI", label: "UPI" },
+  { value: "CASH", label: "Cash" },
+  { value: "CARD", label: "Card" },
+  { value: "BANK_TRANSFER", label: "Bank transfer" },
+] as const;
+
+const dueReasonOptions = [
+  { value: "CUSTOMER_WILL_PAY_LATER", label: "Pay later" },
+  { value: "DIGITAL_PAYMENT_PENDING", label: "Payment pending" },
 ] as const;
 
 const money = new Intl.NumberFormat("en-IN", {
@@ -153,10 +177,41 @@ function formatMoney(paise: number) {
   return money.format(paise / 100);
 }
 
-function listedPrice(product: Product, saleType: SaleType) {
-  return saleType === "WHOLESALE"
-    ? product.wholesalePricePaise ?? product.standardPricePaise
-    : product.standardPricePaise;
+function listedPrice(product: Product, saleType: SaleType, quantity = 1) {
+  if (saleType !== "WHOLESALE") return product.standardPricePaise;
+  const lots = product.wholesaleFifoLots ?? [];
+  if (!lots.length || quantity < 1) {
+    return product.wholesalePricePaise ?? product.standardPricePaise;
+  }
+  let remaining = quantity;
+  let totalPaise = 0;
+  for (const lot of lots) {
+    if (remaining === 0) break;
+    const fromLot = Math.min(remaining, lot.quantity);
+    totalPaise += fromLot * lot.suggestedUnitPricePaise;
+    remaining -= fromLot;
+  }
+  if (remaining > 0) {
+    totalPaise += remaining * (
+      product.wholesalePricePaise ?? product.standardPricePaise
+    );
+  }
+  return Math.ceil(totalPaise / quantity);
+}
+
+function fifoCostPerUnit(product: Product, quantity: number) {
+  const lots = product.wholesaleFifoLots ?? [];
+  if (!lots.length || quantity < 1) return product.minimumPricePaise;
+  let remaining = quantity;
+  let totalPaise = 0;
+  for (const lot of lots) {
+    if (remaining === 0) break;
+    const fromLot = Math.min(remaining, lot.quantity);
+    totalPaise += fromLot * lot.unitCostPaise;
+    remaining -= fromLot;
+  }
+  if (remaining > 0) return product.minimumPricePaise;
+  return Math.ceil(totalPaise / quantity);
 }
 
 function savedAge(iso: string) {
@@ -174,75 +229,6 @@ function paymentLabel(mode: SaleReceipt["payments"][number]["paymentMode"]) {
     : mode.charAt(0) + mode.slice(1).toLowerCase();
 }
 
-function shareText(receipt: SaleReceipt) {
-  return [
-    `ItsMyToy ${receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale receipt`,
-    receipt.saleNumber,
-    receiptDate.format(new Date(receipt.completedAt)),
-    "",
-    ...receipt.lines.map((line) =>
-      `${line.productName} — ${line.quantity} × ${formatMoney(line.unitPricePaise)} = ${formatMoney(line.totalPaise)}`
-    ),
-    "",
-    ...receipt.payments.map((payment) =>
-      `${paymentLabel(payment.paymentMode)}: ${formatMoney(payment.amountPaise)}`
-    ),
-    `Total: ${formatMoney(receipt.totalPaise)}`,
-    "",
-    "Operational sale receipt — not a GST tax invoice.",
-  ].join("\n");
-}
-
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const field = document.createElement("textarea");
-    field.value = text;
-    field.style.position = "fixed";
-    field.style.opacity = "0";
-    document.body.append(field);
-    field.select();
-    const copied = document.execCommand("copy");
-    field.remove();
-    if (!copied) throw new Error("Copy failed");
-  }
-}
-
-function deviceStateCopy(enrollment: OfflineDeviceEnrollment | null) {
-  const state = offlineDeviceState(enrollment);
-  if (state === "ACTIVE") {
-    return {
-      title: "This device is enrolled",
-      detail: enrollment?.graceExpiresAt
-        ? `Validated until ${catalogDate.format(new Date(enrollment.graceExpiresAt))}`
-        : "Device validation is current.",
-    };
-  }
-  if (state === "PENDING") {
-    return {
-      title: "Device approval pending",
-      detail: "An owner must approve this device before future offline sales are enabled.",
-    };
-  }
-  if (state === "REVOKED") {
-    return {
-      title: "Offline access revoked",
-      detail: "Online selling still works. This device cannot receive offline selling access.",
-    };
-  }
-  if (state === "EXPIRED") {
-    return {
-      title: "Offline validation expired",
-      detail: "Reconnect to validate this device. The saved catalogue remains read only.",
-    };
-  }
-  return {
-    title: "Device enrollment unavailable",
-    detail: "Reconnect to register this browser for bounded offline access.",
-  };
-}
-
 export default function SellWorkspace({
   cacheKey,
   userId,
@@ -258,16 +244,22 @@ export default function SellWorkspace({
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [selected, setSelected] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [unitPrice, setUnitPrice] = useState(0);
+  const [priceInputRupees, setPriceInputRupees] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [paymentMode, setPaymentMode] = useState("UPI");
   const [splitPayment, setSplitPayment] = useState(false);
   const [secondPaymentMode, setSecondPaymentMode] = useState("CASH");
   const [firstPaymentRupees, setFirstPaymentRupees] = useState("");
-  const [showCustomerFinder, setShowCustomerFinder] = useState(false);
+  const [recordDue, setRecordDue] = useState(false);
+  const [amountReceivedRupees, setAmountReceivedRupees] = useState("");
+  const [dueReason, setDueReason] = useState("CUSTOMER_WILL_PAY_LATER");
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [activeCustomerIndex, setActiveCustomerIndex] = useState(0);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -278,32 +270,37 @@ export default function SellWorkspace({
   const [guestApprovalLoading, setGuestApprovalLoading] = useState(false);
   const [ownerGuestOverride, setOwnerGuestOverride] = useState(false);
   const [receipt, setReceipt] = useState<SaleReceipt | null>(null);
+  const [receiptExportOpen, setReceiptExportOpen] = useState(false);
+  const [receiptExporting, setReceiptExporting] = useState<
+    "copy" | "pdf" | "image" | null
+  >(null);
+  const [receiptExportStatus, setReceiptExportStatus] = useState("");
   const [showScanner, setShowScanner] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [commandId, setCommandId] = useState(() => crypto.randomUUID());
-  const [showLowerPrice, setShowLowerPrice] = useState(false);
-  const [lowerPriceRupees, setLowerPriceRupees] = useState("");
   const [approval, setApproval] = useState<PriceApproval | null>(null);
-  const [checkingApproval, setCheckingApproval] = useState(false);
   const [exceptionMode, setExceptionMode] = useState(false);
   const [exceptionReason, setExceptionReason] = useState("CUSTOMER_SERVICE_RECOVERY");
   const [exceptionNote, setExceptionNote] = useState("");
   const [offlineCatalog, setOfflineCatalog] =
     useState<OfflineCatalogSnapshot | null>(null);
-  const [catalogStatus, setCatalogStatus] = useState<
+  const [, setCatalogStatus] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
   const [offlineDevice, setOfflineDevice] =
     useState<OfflineDeviceEnrollment | null>(null);
-  const [deviceStatus, setDeviceStatus] = useState<
+  const [, setDeviceStatus] = useState<
     "loading" | "ready" | "unavailable"
   >("loading");
   const [offlineSales, setOfflineSales] = useState<OfflineSaleCommand[]>([]);
-  const [syncingOfflineSales, setSyncingOfflineSales] = useState(false);
+  const [, setSyncingOfflineSales] = useState(false);
   const syncingOfflineSalesRef = useRef(false);
+  const customerSearchRef = useRef<HTMLInputElement>(null);
+  const productSearchTimerRef = useRef<number | null>(null);
+  const productSearchRequestRef = useRef(0);
 
   const refreshOfflineCatalog = useCallback(async () => {
     if (!navigator.onLine) return;
@@ -395,12 +392,57 @@ export default function SellWorkspace({
     if (!online) {
       queueMicrotask(() => {
         setSelectedCustomer(null);
-        setShowCustomerFinder(false);
+        setCustomerResults([]);
         setGuestApproval(null);
         setOwnerGuestOverride(false);
       });
     }
   }, [online]);
+
+  useEffect(() => {
+    const search = customerQuery.trim();
+    if (!online || selectedCustomer || search.length < 2) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setCustomerLoading(true);
+      try {
+        const response = await fetch(
+          `/api/v1/customers?q=${encodeURIComponent(search)}`,
+          { signal: controller.signal },
+        );
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error?.message ?? "Customers could not be loaded.");
+        setCustomerResults(body.customers);
+        setActiveCustomerIndex(0);
+      } catch (reason) {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setError(reason instanceof Error ? reason.message : "Customers could not be loaded.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setCustomerLoading(false);
+      }
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [customerQuery, online, selectedCustomer]);
+
+  useEffect(() => () => {
+    if (productSearchTimerRef.current !== null) {
+      window.clearTimeout(productSearchTimerRef.current);
+    }
+    productSearchRequestRef.current += 1;
+  }, []);
+
+  function selectCustomer(customer: Customer) {
+    setSelectedCustomer(customer);
+    setCustomerQuery("");
+    setCustomerResults([]);
+    setActiveCustomerIndex(0);
+    setError("");
+    resetGuestDecision();
+  }
 
   const syncOfflineSales = useCallback(async (retryNeedsReview = false) => {
     if (
@@ -531,8 +573,6 @@ export default function SellWorkspace({
   }
 
   function clearPriceException() {
-    setShowLowerPrice(false);
-    setLowerPriceRupees("");
     setApproval(null);
     setExceptionMode(false);
     setExceptionReason("CUSTOMER_SERVICE_RECOVERY");
@@ -541,15 +581,8 @@ export default function SellWorkspace({
 
   function selectRegularPrice(price: number) {
     setUnitPrice(price);
+    setPriceInputRupees(String(price / 100));
     clearPriceException();
-  }
-
-  function changeQuantity(nextQuantity: number, product: Product) {
-    setQuantity(nextQuantity);
-    if (approval || exceptionMode) {
-      setUnitPrice(listedPrice(product, saleType));
-      clearPriceException();
-    }
   }
 
   function chooseSaleType(nextSaleType: SaleType) {
@@ -560,6 +593,8 @@ export default function SellWorkspace({
     setSaleType(nextSaleType);
     setCart([]);
     setSelected(null);
+    setMobileCartOpen(false);
+    setCheckoutOpen(false);
     setSelectedCustomer(null);
     setCustomerResults([]);
     resetGuestDecision();
@@ -569,27 +604,143 @@ export default function SellWorkspace({
     setError("");
   }
 
+  function cancelSale() {
+    if (!cart.length) return;
+    if (!window.confirm("Cancel this sale and clear the cart, customer and payment details?")) {
+      return;
+    }
+
+    if (productSearchTimerRef.current !== null) {
+      window.clearTimeout(productSearchTimerRef.current);
+      productSearchTimerRef.current = null;
+    }
+    productSearchRequestRef.current += 1;
+    setCart([]);
+    setSelected(null);
+    setMobileCartOpen(false);
+    setCheckoutOpen(false);
+    setShowScanner(false);
+    setQuery("");
+    setProducts(initialProducts);
+    setSelectedCustomer(null);
+    setCustomerQuery("");
+    setCustomerResults([]);
+    setActiveCustomerIndex(0);
+    setShowNewCustomer(false);
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerLocality("");
+    setCustomerEmail("");
+    setPaymentMode("UPI");
+    setSplitPayment(false);
+    setSecondPaymentMode("CASH");
+    setFirstPaymentRupees("");
+    setRecordDue(false);
+    setAmountReceivedRupees("");
+    setDueReason("CUSTOMER_WILL_PAY_LATER");
+    resetGuestDecision();
+    clearPriceException();
+    setCommandId(crypto.randomUUID());
+    setError("");
+    setMessage("Sale cancelled. Ready for a new sale.");
+  }
+
   function chooseProduct(product: Product) {
     const existing = cart.find((line) => line.product.id === product.id);
+    const nextUnitPrice = existing?.unitPricePaise ?? listedPrice(product, saleType, 1);
     setShowScanner(false);
     setSelected(product);
-    setUnitPrice(existing?.unitPricePaise ?? listedPrice(product, saleType));
+    setUnitPrice(nextUnitPrice);
+    setPriceInputRupees(String(nextUnitPrice / 100));
     setQuantity(existing?.quantity ?? 1);
     setApproval(existing?.approval ?? null);
     setExceptionMode(existing?.exceptionMode ?? false);
     setExceptionReason(existing?.exceptionReason ?? "CUSTOMER_SERVICE_RECOVERY");
     setExceptionNote(existing?.exceptionNote ?? "");
-    setShowLowerPrice(existing?.exceptionMode ?? false);
-    setLowerPriceRupees(
-      existing?.exceptionMode ? (existing.unitPricePaise / 100).toFixed(2) : "",
-    );
     setMessage("");
     setError("");
   }
 
-  async function findCachedProducts(search: string, liveFallback = false) {
+  function quickAddProduct(product: Product) {
+    const existing = cart.find((line) => line.product.id === product.id);
+    if (existing?.approval || existing?.exceptionMode) {
+      chooseProduct(product);
+      return;
+    }
+    if (!navigator.onLine && saleType === "WHOLESALE") {
+      setError("Reconnect before preparing a Wholesale sale.");
+      return;
+    }
+    if (queuedSalesBlockOnlineCheckout) {
+      setError("Sync the queued sales before starting another cart.");
+      return;
+    }
+
+    const cachedProduct = offlineCatalog?.products.find(
+      (item) => item.id === product.id,
+    );
+    const availableQuantity = navigator.onLine
+      ? product.stock
+      : cachedProduct
+        ? offlineAvailableQuantity(
+            cachedProduct.stock,
+            queuedQuantityForVariant(offlineSales, product.id),
+          )
+        : 0;
+    if (
+      !navigator.onLine
+      && (offlineDeviceState(offlineDevice) !== "ACTIVE" || !cachedProduct)
+    ) {
+      setError("Reconnect and validate this approved device before building an offline sale.");
+      return;
+    }
+
+    const nextQuantity = (existing?.quantity ?? 0) + 1;
+    if (nextQuantity > availableQuantity) {
+      setError("There is not enough stock for another unit.");
+      return;
+    }
+
+    const line: CartLine = existing
+      ? {
+          ...existing,
+          quantity: nextQuantity,
+          unitPricePaise:
+            saleType === "WHOLESALE" && existing.usesSuggestedPrice
+              ? listedPrice(product, saleType, nextQuantity)
+              : existing.unitPricePaise,
+        }
+      : {
+          product,
+          quantity: 1,
+          unitPricePaise: navigator.onLine
+            ? listedPrice(product, saleType)
+            : cachedProduct!.standardPricePaise,
+          approval: null,
+          usesSuggestedPrice: true,
+          exceptionMode: false,
+          exceptionReason: "CUSTOMER_SERVICE_RECOVERY",
+          exceptionNote: "",
+        };
+    setCart((current) => existing
+      ? current.map((item) => item.product.id === product.id ? line : item)
+      : [...current, line]);
+    setShowScanner(false);
+    setMessage("");
+    setError("");
+    resetGuestDecision();
+    setCommandId(crypto.randomUUID());
+  }
+
+  async function findCachedProducts(
+    search: string,
+    liveFallback = false,
+    requestId = productSearchRequestRef.current,
+    autoAddSingle = false,
+  ) {
     const cached = offlineCatalog
       ?? await readOfflineCatalog(cacheKey).catch(() => null);
+    if (requestId !== productSearchRequestRef.current) return false;
     if (!cached) {
       setCatalogStatus("unavailable");
       setError(
@@ -606,36 +757,68 @@ export default function SellWorkspace({
       setError(`No saved product found for “${search.trim()}”.`);
       return false;
     }
-    if (matches.length === 1) chooseProduct(matches[0]);
+    if (autoAddSingle && matches.length === 1) quickAddProduct(matches[0]);
     setMessage(
       `${liveFallback ? "Live lookup unavailable. " : ""}Using catalogue saved ${catalogDate.format(new Date(cached.asOf))}. Stock may have changed.`,
     );
     return true;
   }
 
-  async function findProducts(search = query) {
+  async function findProducts(
+    search = query,
+    options: { autoAddSingle?: boolean; requestId?: number } = {},
+  ) {
+    const requestId = options.requestId ?? ++productSearchRequestRef.current;
+    const autoAddSingle = options.autoAddSingle ?? false;
     setLoading(true);
     setError("");
     setMessage("");
     try {
-      if (!navigator.onLine) return await findCachedProducts(search);
+      if (!navigator.onLine) {
+        return await findCachedProducts(search, false, requestId, autoAddSingle);
+      }
 
       const response = await fetch(`/api/v1/catalog?q=${encodeURIComponent(search)}`);
       const body = await response.json();
+      if (requestId !== productSearchRequestRef.current) return false;
       if (!response.ok) throw new Error(body.error?.message ?? "Products could not be loaded.");
       setProducts(body.products);
       if (search.trim() && body.products.length === 0) {
         setError(`No product found for “${search.trim()}”. Check the label or search manually.`);
         return false;
       }
-      if (body.products.length === 1) chooseProduct(body.products[0]);
+      if (autoAddSingle && body.products.length === 1) quickAddProduct(body.products[0]);
       return true;
     } catch {
-      if (await findCachedProducts(search, true)) return true;
+      if (requestId !== productSearchRequestRef.current) return false;
+      if (await findCachedProducts(search, true, requestId, autoAddSingle)) return true;
       return false;
     } finally {
-      setLoading(false);
+      if (requestId === productSearchRequestRef.current) setLoading(false);
     }
+  }
+
+  function updateProductQuery(nextQuery: string) {
+    setQuery(nextQuery);
+    setShowScanner(false);
+    setError("");
+    setMessage("");
+    if (productSearchTimerRef.current !== null) {
+      window.clearTimeout(productSearchTimerRef.current);
+    }
+
+    const requestId = ++productSearchRequestRef.current;
+    if (!nextQuery.trim()) {
+      setProducts(initialProducts);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    productSearchTimerRef.current = window.setTimeout(() => {
+      productSearchTimerRef.current = null;
+      void findProducts(nextQuery, { requestId });
+    }, 250);
   }
 
   async function search(event: FormEvent) {
@@ -645,15 +828,24 @@ export default function SellWorkspace({
   }
 
   async function useScannedBarcode(barcode: string) {
-    setShowScanner(false);
     setQuery(barcode);
-    if (await findProducts(barcode)) {
+    if (await findProducts(barcode, { autoAddSingle: true })) {
       setMessage(
         navigator.onLine
           ? `Barcode ${barcode} scanned.`
           : `Barcode ${barcode} found in the saved catalogue. Stock may have changed.`,
       );
+      return {
+        kind: "success" as const,
+        message: navigator.onLine
+          ? `${barcode} matched and the product was added to the cart.`
+          : `${barcode} matched the saved catalogue and was added to the cart.`,
+      };
     }
+    return {
+      kind: "warning" as const,
+      message: `${barcode} was read, but it does not match a product. Check the label or search manually.`,
+    };
   }
 
   function saveCartLine(event: FormEvent) {
@@ -686,12 +878,33 @@ export default function SellWorkspace({
       setError("There is not enough stock for this quantity.");
       return;
     }
+    if (saleType === "WHOLESALE") {
+      const minimumWholesalePrice = fifoCostPerUnit(selected, quantity);
+      const maximumWholesalePrice = Math.max(
+        listedPrice(selected, saleType, quantity),
+        selected.standardPricePaise,
+        selected.mrpPaise,
+      );
+      if (
+        !Number.isInteger(unitPrice)
+        || unitPrice < minimumWholesalePrice
+        || unitPrice > maximumWholesalePrice
+      ) {
+        setError(
+          `Enter a Wholesale price between ${formatMoney(minimumWholesalePrice)} and ${formatMoney(maximumWholesalePrice)} per item.`,
+        );
+        return;
+      }
+    }
     if (
       !navigator.onLine
       && (
         exceptionMode
         || approval
-        || unitPrice < cachedProduct!.minimumPricePaise
+        || unitPrice < Math.min(
+          cachedProduct!.standardPricePaise,
+          cachedProduct!.minimumPricePaise,
+        )
         || unitPrice > cachedProduct!.standardPricePaise
       )
     ) {
@@ -715,6 +928,7 @@ export default function SellWorkspace({
       product: selected,
       quantity,
       unitPricePaise: unitPrice,
+      usesSuggestedPrice: unitPrice === listedPrice(selected, saleType, quantity),
       approval,
       exceptionMode,
       exceptionReason,
@@ -733,8 +947,52 @@ export default function SellWorkspace({
   }
 
   function removeCartLine(variantId: string) {
-    setCart((current) => current.filter((line) => line.product.id !== variantId));
+    setCart((current) => {
+      const next = current.filter((line) => line.product.id !== variantId);
+      if (next.length === 0) {
+        setMobileCartOpen(false);
+        setCheckoutOpen(false);
+      }
+      return next;
+    });
     if (selected?.id === variantId) setSelected(null);
+    resetGuestDecision();
+    setCommandId(crypto.randomUUID());
+  }
+
+  function changeCartQuantity(line: CartLine, nextQuantity: number) {
+    if (nextQuantity < 1) {
+      removeCartLine(line.product.id);
+      return;
+    }
+    const cachedProduct = offlineCatalog?.products.find(
+      (product) => product.id === line.product.id,
+    );
+    const availableQuantity = navigator.onLine
+      ? line.product.stock
+      : cachedProduct
+        ? offlineAvailableQuantity(
+            cachedProduct.stock,
+            queuedQuantityForVariant(offlineSales, line.product.id),
+          )
+        : 0;
+    if (nextQuantity > availableQuantity) {
+      setError(`Only ${availableQuantity} available for ${line.product.name}.`);
+      return;
+    }
+    setCart((current) => current.map((item) =>
+      item.product.id === line.product.id
+        ? {
+            ...item,
+            quantity: nextQuantity,
+            unitPricePaise:
+              saleType === "WHOLESALE" && item.usesSuggestedPrice
+                ? listedPrice(item.product, saleType, nextQuantity)
+                : item.unitPricePaise,
+          }
+        : item
+    ));
+    setError("");
     resetGuestDecision();
     setCommandId(crypto.randomUUID());
   }
@@ -782,6 +1040,8 @@ export default function SellWorkspace({
         await refreshOfflineSales();
         setCart([]);
         setSelected(null);
+        setMobileCartOpen(false);
+        setCheckoutOpen(false);
         setSelectedCustomer(null);
         resetGuestDecision();
         setCommandId(crypto.randomUUID());
@@ -795,7 +1055,16 @@ export default function SellWorkspace({
       }
       return;
     }
-    if (splitPayment && !splitPaymentValid) {
+    if (recordDue && !selectedCustomer) {
+      setError("Select a customer before recording an unpaid balance.");
+      customerSearchRef.current?.focus();
+      return;
+    }
+    if (recordDue && !duePaymentValid) {
+      setError("Enter an amount received from ₹0 up to, but below, the sale total.");
+      return;
+    }
+    if (!recordDue && splitPayment && !splitPaymentValid) {
       setError("Enter a first payment amount above ₹0 and below the cart total.");
       return;
     }
@@ -822,12 +1091,17 @@ export default function SellWorkspace({
                 }
               : undefined,
           })),
-          payments: splitPayment
-            ? [
-                { paymentMode, amountPaise: firstPaymentPaise },
-                { paymentMode: secondPaymentMode, amountPaise: secondPaymentPaise },
-              ]
-            : [{ paymentMode, amountPaise: cartTotal }],
+          payments: recordDue
+            ? amountReceivedPaise > 0
+              ? [{ paymentMode, amountPaise: amountReceivedPaise }]
+              : []
+            : splitPayment
+              ? [
+                  { paymentMode, amountPaise: firstPaymentPaise },
+                  { paymentMode: secondPaymentMode, amountPaise: secondPaymentPaise },
+                ]
+              : [{ paymentMode, amountPaise: cartTotal }],
+          dueReason: recordDue ? dueReason : undefined,
           customerId: selectedCustomer?.id,
           guestApprovalId: guestApproval?.status === "APPROVED"
             ? guestApproval.id
@@ -846,6 +1120,9 @@ export default function SellWorkspace({
       setMessage(
         `Sale complete · ${body.sale.lines.length} products · ${formatMoney(body.sale.totalPaise)}${ownerResult}`,
       );
+      setReceiptExportOpen(false);
+      setReceiptExporting(null);
+      setReceiptExportStatus("");
       setReceipt(body.sale);
       const results = new Map<string, {
         remainingStock: number;
@@ -874,6 +1151,8 @@ export default function SellWorkspace({
       void refreshOfflineCatalog();
       setCart([]);
       setSelected(null);
+      setMobileCartOpen(false);
+      setCheckoutOpen(false);
       setSelectedCustomer(null);
       setCustomerResults([]);
       setCustomerQuery("");
@@ -881,10 +1160,12 @@ export default function SellWorkspace({
       setCustomerPhone("");
       setCustomerLocality("");
       setCustomerEmail("");
-      setShowCustomerFinder(false);
       setShowNewCustomer(false);
       setSplitPayment(false);
       setFirstPaymentRupees("");
+      setRecordDue(false);
+      setAmountReceivedRupees("");
+      setDueReason("CUSTOMER_WILL_PAY_LATER");
       resetGuestDecision();
       setCommandId(crypto.randomUUID());
     } catch (reason) {
@@ -894,45 +1175,36 @@ export default function SellWorkspace({
     }
   }
 
-  async function shareReceipt() {
-    if (!receipt) return;
-    const text = shareText(receipt);
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: `ItsMyToy ${receipt.saleNumber}`,
-          text,
-        });
-        setMessage("Receipt shared.");
-        return;
-      } catch (reason) {
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-      }
-    }
+  async function exportReceipt(action: "copy" | "pdf" | "image") {
+    if (!receipt || receiptExporting) return;
+    setReceiptExporting(action);
+    setReceiptExportStatus("");
     try {
-      await copyText(text);
-      setMessage("Receipt copied. Paste it into WhatsApp or another app.");
-    } catch {
-      setError("Receipt could not be shared. Try again.");
+      if (action === "copy") {
+        await copyReceiptImage(receipt);
+        setReceiptExportStatus("Receipt image copied. Paste it into WhatsApp or another app.");
+      } else if (action === "pdf") {
+        await downloadReceiptPdf(receipt);
+        setReceiptExportStatus("Receipt PDF downloaded.");
+      } else {
+        await downloadReceiptImage(receipt);
+        setReceiptExportStatus("Receipt image downloaded.");
+      }
+    } catch (reason) {
+      setReceiptExportStatus(
+        reason instanceof Error ? reason.message : "Receipt could not be prepared. Try again.",
+      );
+    } finally {
+      setReceiptExporting(null);
     }
   }
 
-  async function findCustomers() {
-    setCustomerLoading(true);
+  function closeReceipt() {
+    setReceipt(null);
+    setReceiptExportOpen(false);
+    setReceiptExportStatus("");
+    setMessage("");
     setError("");
-    try {
-      const response = await fetch(
-        `/api/v1/customers?q=${encodeURIComponent(customerQuery)}`,
-      );
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error?.message ?? "Customers could not be loaded.");
-      setCustomerResults(body.customers);
-      setShowNewCustomer(body.customers.length === 0);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Customers could not be loaded.");
-    } finally {
-      setCustomerLoading(false);
-    }
   }
 
   async function createCustomer() {
@@ -944,17 +1216,15 @@ export default function SellWorkspace({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           name: customerName,
-          phone: customerPhone,
+          phone: customerPhone.trim() || undefined,
           locality: customerLocality.trim() || undefined,
           email: customerEmail.trim() || undefined,
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error?.message ?? "Customer could not be saved.");
-      setSelectedCustomer(body.customer);
-      setShowCustomerFinder(false);
+      selectCustomer(body.customer);
       setShowNewCustomer(false);
-      resetGuestDecision();
       setMessage("Customer saved and selected for this sale.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Customer could not be saved.");
@@ -1016,87 +1286,31 @@ export default function SellWorkspace({
     }
   }
 
-  async function requestLowerPrice() {
-    if (!selected) return;
-    const requestedUnitPricePaise = Math.round(Number(lowerPriceRupees) * 100);
-    if (
-      !Number.isInteger(requestedUnitPricePaise) ||
-      requestedUnitPricePaise <= 0 ||
-      requestedUnitPricePaise >= selected.minimumPricePaise
-    ) {
-      setError(`Enter a price below ${formatMoney(selected.minimumPricePaise)} and above ₹0.`);
-      return;
-    }
-    setError("");
-    if (role === "BUSINESS_OWNER") {
-      setUnitPrice(requestedUnitPricePaise);
-      setExceptionMode(true);
-      setApproval(null);
-      return;
-    }
-
-    setCheckingApproval(true);
-    try {
-      const response = await fetch("/api/v1/price-approvals", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          variantId: selected.id,
-          quantity,
-          requestedUnitPricePaise,
-        }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error?.message ?? "Approval could not be requested.");
-      setApproval(body.approval);
-      setMessage("Lower-price request sent to a business owner.");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Approval could not be requested.");
-    } finally {
-      setCheckingApproval(false);
-    }
-  }
-
-  async function checkApproval() {
-    if (!approval) return;
-    setCheckingApproval(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/v1/price-approvals/${approval.id}`);
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error?.message ?? "Approval could not be checked.");
-      setApproval(body.approval);
-      if (body.approval.status === "APPROVED") {
-        setUnitPrice(body.approval.requestedUnitPricePaise);
-        setExceptionMode(true);
-        setMessage("Owner approved this exact price for 30 minutes.");
-      } else if (body.approval.status !== "PENDING") {
-        setError(`This request is ${body.approval.status.toLowerCase()}. Request a new price.`);
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Approval could not be checked.");
-    } finally {
-      setCheckingApproval(false);
-    }
-  }
-
   const selectedTotal = selected ? unitPrice * quantity : 0;
   const customerSaving = selected ? (selected.mrpPaise - unitPrice) * quantity : 0;
-  const selectedListedPrice = selected ? listedPrice(selected, saleType) : 0;
-  const maxExtraDiscount = selected
-    ? selectedListedPrice - selected.minimumPricePaise
+  const selectedListedPrice = selected
+    ? listedPrice(selected, saleType, quantity)
     : 0;
-  const expectedAccountingCogs = selected?.inventoryValuePaise === undefined || selected.stock < 1
-    ? undefined
-    : quantity === selected.stock
-      ? selected.inventoryValuePaise
-      : Math.round(selected.inventoryValuePaise * quantity / selected.stock);
-  const expectedGrossProfit = expectedAccountingCogs === undefined
-    ? undefined
-    : selectedTotal - expectedAccountingCogs;
-  const expectedReplacementMargin = selected?.latestLandedCostPaise === undefined
-    ? undefined
-    : selectedTotal - selected.latestLandedCostPaise * quantity;
+  const additionalDiscount = selected
+    ? Math.max(0, selectedListedPrice - unitPrice)
+    : 0;
+  const additionalDiscountPercent = selectedListedPrice > 0
+    ? Math.round(additionalDiscount * 100 / selectedListedPrice)
+    : 0;
+  const maxExtraDiscount = selected
+    ? Math.max(0, selectedListedPrice - Math.min(
+        selectedListedPrice,
+        saleType === "WHOLESALE"
+          ? fifoCostPerUnit(selected, quantity)
+          : selected.minimumPricePaise,
+      ))
+    : 0;
+  const suggestedDiscount = selected
+    ? Math.max(0, selectedListedPrice - Math.min(
+        selectedListedPrice,
+        selected.suggestedMinimumPricePaise ?? selected.minimumPricePaise,
+      ))
+    : 0;
   const cartTotal = cart.reduce(
     (sum, line) => sum + line.quantity * line.unitPricePaise,
     0,
@@ -1108,6 +1322,14 @@ export default function SellWorkspace({
     && firstPaymentPaise > 0
     && secondPaymentPaise > 0
     && paymentMode !== secondPaymentMode;
+  const amountReceivedPaise = Math.round(Number(amountReceivedRupees || "0") * 100);
+  const balanceDuePaise = cartTotal - amountReceivedPaise;
+  const duePaymentValid = !recordDue || (
+    Number.isInteger(amountReceivedPaise)
+    && amountReceivedPaise >= 0
+    && balanceDuePaise > 0
+    && Boolean(selectedCustomer)
+  );
   const requiresCustomer = saleType === "WHOLESALE" || cartTotal >= 500_000;
   const guestCompletionReady = saleType === "WHOLESALE"
     ? Boolean(selectedCustomer)
@@ -1134,28 +1356,25 @@ export default function SellWorkspace({
           selectedQueuedQuantity,
         )
       : 0;
-  const needsReviewCount = offlineSales.filter(
-    (command) => command.status === "NEEDS_REVIEW",
-  ).length;
   const queuedSalesBlockOnlineCheckout = online && offlineSales.length > 0;
+  const receiptDiscounts = receipt ? receiptSavings(receipt) : null;
 
   return (
     <AppShell displayName={displayName} role={role}>
-      <section className="sell-page sale-workspace-page" aria-labelledby="sell-heading">
+      <section
+        className={`sell-page sale-workspace-page${mobileCartOpen ? " cart-view-open" : ""}${checkoutOpen ? " checkout-view-open" : ""}`}
+        aria-labelledby="sell-heading"
+      >
         <PageHeader
-          eyebrow={receipt
-            ? `${receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale complete`
-            : `${saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale`}
+          eyebrow={`${saleType === "WHOLESALE" ? "Wholesale" : "Retail"} sale`}
           headingId="sell-heading"
-          title={receipt ? "Receipt ready" : "Create sale"}
-          description={receipt
-            ? "The sale, payments and stock deduction were saved together."
-            : saleType === "WHOLESALE"
-              ? "Select the shopkeeper, add products at their Wholesale prices and collect payment."
-              : "Scan a product, apply the permitted Retail price and collect payment."}
+          title="Create sale"
+          description={saleType === "WHOLESALE"
+            ? "Select the shopkeeper, add products at their Wholesale prices and collect payment."
+            : "Scan a product, apply the permitted Retail price and collect payment."}
         />
 
-        {!receipt && !fixedSaleType && (
+        {!fixedSaleType && (
           <div className="sale-type-switch" aria-label="Choose Retail or Wholesale sale">
             <button
               type="button"
@@ -1179,222 +1398,71 @@ export default function SellWorkspace({
           </div>
         )}
 
-        {!receipt && <form className="search-bar" onSubmit={search}>
-          <label htmlFor="product-search">Scan or enter SKU, barcode or product name</label>
-          <div className="search-row">
-            <input
-              id="product-search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Example: IMT-CAR-RC-0001-RED"
-              autoComplete="off"
-              enterKeyHint="search"
-            />
-            <button type="submit" disabled={loading}>
-              {loading ? "Finding…" : online ? "Find" : "Find saved"}
-            </button>
-            <button
-              type="button"
-              className="scan-trigger"
-              onClick={() => {
-                setShowScanner(true);
-                setMessage("");
-                setError("");
-              }}
-            >
-              Scan barcode
-            </button>
-          </div>
-        </form>}
+        <Modal
+          open={showScanner}
+          title="Scan a product"
+          description="Place the complete barcode inside the guide."
+          onClose={() => setShowScanner(false)}
+          panelClassName="scanner-modal-panel"
+        >
+          <BarcodeScanner
+            onComplete={() => setShowScanner(false)}
+            onDetected={useScannedBarcode}
+            labelCandidates={(offlineCatalog?.products ?? initialProducts).map((product) => ({
+              code: product.barcode || product.sku,
+              sku: product.sku,
+              name: product.name,
+              variantName: product.variantName,
+            }))}
+            onManualSearch={() => {
+              setShowScanner(false);
+              window.requestAnimationFrame(() => {
+                document.getElementById("product-search")?.focus();
+              });
+            }}
+          />
+        </Modal>
 
-        {!receipt && (
-          <details className="offline-readiness-disclosure">
-            <summary>
-              <span>
-                <strong>{online ? "Online selling ready" : "Offline mode"}</strong>
-                <small>Device, saved catalogue and pending sync status</small>
-              </span>
-              <b>{offlineSales.length ? `${offlineSales.length} waiting` : "No sales waiting"}</b>
-            </summary>
-          <div className="offline-readiness" role="status">
-            <div
-              className={`catalog-sync-state ${online ? catalogStatus : "offline"}`}
-            >
-              <span aria-hidden="true">{online ? "✓" : "!"}</span>
-              <div>
-                <strong>
-                  {online
-                    ? catalogStatus === "ready"
-                      ? "Offline lookup ready"
-                      : catalogStatus === "loading"
-                        ? "Preparing offline lookup"
-                        : "Offline lookup unavailable"
-                    : offlineCatalog
-                      ? "Saved catalogue — read only"
-                      : "No saved catalogue on this device"}
-                </strong>
-                <small>
-                  {offlineCatalog
-                    ? `${offlineCatalog.products.length} products · ${savedAge(offlineCatalog.asOf)} · ${catalogDate.format(new Date(offlineCatalog.asOf))}${online ? "" : " · server stock may now be lower"}`
-                    : online
-                      ? "Keep this screen open while the catalogue is prepared."
-                      : "Reconnect once before using offline product lookup."}
-                </small>
-              </div>
-              {online && catalogStatus === "unavailable" && (
-                <button type="button" onClick={() => void refreshOfflineCatalog()}>
-                  Retry
-                </button>
-              )}
-            </div>
-            <div className={`device-readiness ${offlineDeviceState(offlineDevice).toLowerCase()}`}>
-              <span aria-hidden="true">◉</span>
-              <div>
-                <strong>
-                  {deviceStatus === "loading"
-                    ? "Checking this device"
-                    : deviceStateCopy(offlineDevice).title}
-                </strong>
-                <small>
-                  {deviceStatus === "loading"
-                    ? "This does not interrupt online selling."
-                    : deviceStateCopy(offlineDevice).detail}
-                </small>
-              </div>
-            </div>
-            <div className={`offline-queue-state${needsReviewCount ? " review" : ""}`}>
-              <span aria-hidden="true">{needsReviewCount ? "!" : "↻"}</span>
-              <div>
-                <strong>
-                  {offlineSales.length === 0
-                    ? "No sales waiting to sync"
-                    : `${offlineSales.length} ${offlineSales.length === 1 ? "sale" : "sales"} saved on this device`}
-                </strong>
-                <small>
-                  {syncingOfflineSales
-                    ? "Syncing in sale order…"
-                    : needsReviewCount
-                      ? `${needsReviewCount} need owner review; they still count against offline stock.`
-                      : offlineSales.length
-                        ? online
-                          ? "Ready to sync after device validation."
-                          : "They will sync in order after reconnecting."
-                        : "Offline sales will remain visible here until the server accepts them."}
-                </small>
-              </div>
-              {online && offlineSales.length > 0 && (
+        {(error || message) && (
+          <p
+            className={`alert sale-alert ${error ? "error" : "success"}`}
+            role={error ? "alert" : "status"}
+          >
+            {error || message}
+          </p>
+        )}
+
+        <div className="workspace-grid">
+          <section className="results-panel" aria-labelledby="products-heading">
+            <form className="search-bar product-search" onSubmit={search}>
+              <label htmlFor="product-search">Search by product, SKU or barcode</label>
+              <div className="search-row">
+                <input
+                  id="product-search"
+                  value={query}
+                  onChange={(event) => updateProductQuery(event.target.value)}
+                  placeholder="Search product, SKU or barcode"
+                  autoComplete="off"
+                  enterKeyHint="search"
+                  aria-busy={loading}
+                />
                 <button
                   type="button"
-                  onClick={() => void syncOfflineSales(needsReviewCount > 0)}
-                  disabled={syncingOfflineSales}
+                  className="scan-trigger"
+                  aria-label="Scan barcode"
+                  title="Scan barcode"
+                  onClick={() => {
+                    setShowScanner(true);
+                    setMessage("");
+                    setError("");
+                  }}
                 >
-                  {syncingOfflineSales
-                    ? "Syncing…"
-                    : needsReviewCount
-                      ? "Retry review"
-                      : "Sync now"}
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M7 9v6M10 9v6M14 9v6M17 9v6" />
+                  </svg>
                 </button>
-              )}
-            </div>
-            {offlineSales.length > 0 && (
-              <div className="offline-queue-list">
-                {offlineSales.map((command) => (
-                  <div key={command.commandId}>
-                    <span>
-                      <strong>
-                        {command.display.units} units · {formatMoney(command.display.totalPaise)}
-                      </strong>
-                      <small>
-                        {catalogDate.format(new Date(command.createdAt))}
-                        {" · "}
-                        {command.display.paymentMode}
-                      </small>
-                    </span>
-                    <b>{command.status === "QUEUED" ? "Waiting" : "Needs review"}</b>
-                    {command.lastResult && <small>{command.lastResult.message}</small>}
-                  </div>
-                ))}
               </div>
-            )}
-          </div>
-          </details>
-        )}
-
-        {showScanner && !receipt && (
-          <BarcodeScanner
-            onClose={() => setShowScanner(false)}
-            onDetected={useScannedBarcode}
-          />
-        )}
-
-        {error && <p className="alert error" role="alert">{error}</p>}
-        {message && <p className="alert success" role="status">{message}</p>}
-
-        {receipt ? (
-          <section className="sale-success" aria-labelledby="receipt-heading">
-            <div className="receipt-topline">
-              <div>
-                <p className="eyebrow">ItsMyToy sale receipt</p>
-                <h2 id="receipt-heading">{receipt.saleNumber}</h2>
-                <p>{receiptDate.format(new Date(receipt.completedAt))}</p>
-              </div>
-              <span className="success-mark" aria-hidden="true">✓</span>
-            </div>
-            <p className="receipt-sale-type">
-              {receipt.saleType === "WHOLESALE" ? "Wholesale sale" : "Retail sale"}
-            </p>
-
-            {receipt.customerName && (
-              <p className="receipt-customer">Customer: <strong>{receipt.customerName}</strong></p>
-            )}
-
-            <div className="receipt-lines">
-              {receipt.lines.map((line) => (
-                <div key={line.variantId}>
-                  <span>
-                    <strong>{line.productName}</strong>
-                    <small>{line.sku} · {line.quantity} × {formatMoney(line.unitPricePaise)}</small>
-                  </span>
-                  <strong>{formatMoney(line.totalPaise)}</strong>
-                </div>
-              ))}
-            </div>
-
-            <div className="receipt-payments">
-              {receipt.payments.map((payment) => (
-                <div key={payment.paymentMode}>
-                  <span>{paymentLabel(payment.paymentMode)}</span>
-                  <strong>{formatMoney(payment.amountPaise)}</strong>
-                </div>
-              ))}
-              <div className="receipt-grand-total">
-                <span>Total</span>
-                <strong>{formatMoney(receipt.totalPaise)}</strong>
-              </div>
-            </div>
-
-            <p className="receipt-disclaimer">
-              Operational sale receipt — not a GST tax invoice.
-            </p>
-            <div className="receipt-actions">
-              <button type="button" className="share-receipt-button" onClick={shareReceipt}>
-                Share receipt
-              </button>
-              <button
-                type="button"
-                className="new-sale-button"
-                onClick={() => {
-                  setReceipt(null);
-                  setMessage("");
-                  setError("");
-                }}
-              >
-                New sale
-              </button>
-            </div>
-          </section>
-        ) : <div className="workspace-grid">
-          <section className="results-panel" aria-labelledby="products-heading">
+            </form>
             <div className="section-title">
               <h2 id="products-heading">Products</h2>
               <span>{products.length} shown</span>
@@ -1402,55 +1470,104 @@ export default function SellWorkspace({
             <div className="product-list">
               {products.map((product) => {
                 const inCart = cart.find((line) => line.product.id === product.id);
+                const available = online
+                  ? product.stock
+                  : offlineAvailableQuantity(
+                      product.stock,
+                      queuedQuantityForVariant(offlineSales, product.id),
+                    );
                 return (
-                  <button
-                    className={`product-row${selected?.id === product.id ? " selected" : ""}`}
-                    type="button"
+                  <article
+                    className={`product-row${inCart ? " in-cart" : ""}`}
                     key={product.id}
-                    onClick={() => chooseProduct(product)}
                   >
-                    <span className="product-icon" aria-hidden="true">{product.name.slice(0, 1)}</span>
-                    <span className="product-copy">
-                      <strong>{product.name}</strong>
-                      <small>{product.variantName} · {product.sku}</small>
-                      <small>{product.rackLocation ?? "Rack not set"}</small>
-                    </span>
-                    <span className="product-price">
-                      {formatMoney(listedPrice(product, saleType))}
-                      <small>{saleType === "WHOLESALE" ? "Wholesale" : "Retail"}</small>
-                    </span>
-                    <span className={`stock-pill${product.stock === 0 ? " empty" : ""}`}>
-                      {inCart
-                        ? `${inCart.quantity} in cart`
-                        : online
-                          ? `${product.stock} in stock`
-                          : `${offlineAvailableQuantity(
-                              product.stock,
-                              queuedQuantityForVariant(offlineSales, product.id),
-                            )} offline available`}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="product-main"
+                      onClick={() => inCart ? chooseProduct(product) : quickAddProduct(product)}
+                      disabled={available < 1 && !inCart}
+                      aria-label={inCart
+                        ? `Edit ${product.name} in cart`
+                        : `Add ${product.name} to cart`}
+                    >
+                      <span className="product-icon" aria-hidden="true">{product.name.slice(0, 1)}</span>
+                      <span className="product-copy">
+                        <strong>{product.name}</strong>
+                        <small>{product.variantName} · {product.sku}</small>
+                        <small>{product.rackLocation ?? "Rack not set"}</small>
+                      </span>
+                      <span className="product-price">
+                        {formatMoney(listedPrice(product, saleType))}
+                        <small>{saleType === "WHOLESALE" ? "Wholesale" : "Retail"}</small>
+                      </span>
+                      <span className={`stock-pill${product.stock === 0 ? " empty" : ""}`}>
+                        {inCart
+                          ? `${inCart.quantity} in cart`
+                          : online
+                            ? `${product.stock} in stock`
+                            : `${offlineAvailableQuantity(
+                                product.stock,
+                                queuedQuantityForVariant(offlineSales, product.id),
+                              )} offline available`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="product-add"
+                      onClick={() => inCart
+                        ? removeCartLine(product.id)
+                        : quickAddProduct(product)}
+                      disabled={available < 1 && !inCart}
+                      aria-label={inCart
+                        ? `Remove ${product.name} from cart`
+                        : `Add ${product.name} to cart`}
+                      title={inCart ? "Remove from cart" : "Add to cart"}
+                    >
+                      {inCart ? "×" : "+"}
+                    </button>
+                  </article>
                 );
               })}
             </div>
           </section>
 
           <section className="checkout-panel" aria-label="Cart builder and checkout">
-            {!selected ? (
-              <div className="empty-state cart-empty-state">
-                <span aria-hidden="true">↖</span>
-                <h2>Select a product</h2>
-                <p>{cart.length ? "Choose another product or complete the cart below." : "Choose a toy to add it to this sale."}</p>
-              </div>
-            ) : (
-              <form onSubmit={saveCartLine}>
-                <div className="selected-product">
+            <button
+              type="button"
+              className="mobile-products-back"
+              onClick={() => {
+                if (checkoutOpen) {
+                  setCheckoutOpen(false);
+                  setMobileCartOpen(true);
+                } else {
+                  setMobileCartOpen(false);
+                }
+              }}
+            >
+              {checkoutOpen ? "← Back to cart" : "← Continue adding products"}
+            </button>
+
+            <Modal
+              open={Boolean(selected)}
+              title={saleType === "WHOLESALE" ? "Set wholesale price" : "Apply a discount"}
+              description={selected?.name ?? "Cart item"}
+              onClose={() => setSelected(null)}
+              panelClassName="discount-modal-panel"
+            >
+              {selected && (
+              <form className="sale-line-editor" onSubmit={saveCartLine}>
+                <div className="line-editor-product">
                   <div>
-                    <p className="eyebrow">Selected product</p>
-                    <h2>{selected.name}</h2>
-                    <p>{selected.variantName} · {selected.rackLocation}</p>
+                    <strong>SKU {selected.sku}</strong>
+                    <small>
+                      {selected.variantName ? `${selected.variantName} · ` : ""}
+                      {selected.rackLocation ?? "Rack not set"}
+                    </small>
                   </div>
-                  <span className="stock-large">
+                  <span
+                    aria-label={`${selected.stock} ${online ? "available" : "last known"}`}
+                    className="stock-large"
+                  >
                     {selected.stock}
                     <small>{online ? "available" : "last known"}</small>
                   </span>
@@ -1465,151 +1582,154 @@ export default function SellWorkspace({
                 )}
 
                 <div className="price-summary">
-                  <div><span>MRP</span><strong>{formatMoney(selected.mrpPaise)}</strong></div>
-                  <div><span>Retail price</span><strong>{formatMoney(selected.standardPricePaise)}</strong></div>
-                  <div className={saleType === "WHOLESALE" ? "permitted" : ""}>
-                    <span>Wholesale price</span>
-                    <strong>{formatMoney(selected.wholesalePricePaise ?? selected.standardPricePaise)}</strong>
+                  <div className="selling-price">
+                    <span>{saleType === "WHOLESALE" ? "Suggested wholesale price" : "Selling price"}</span>
+                    <strong>{formatMoney(selectedListedPrice)}</strong>
                   </div>
-                  <div className="permitted"><span>Your lowest permitted price</span><strong>{formatMoney(selected.minimumPricePaise)}</strong></div>
-                  {selected.weightedAverageCostPaise !== undefined && (
-                    <div><span>Weighted-average cost</span><strong>{formatMoney(selected.weightedAverageCostPaise)}</strong></div>
-                  )}
-                  {selected.latestLandedCostPaise !== undefined && (
-                    <div><span>Latest landed cost</span><strong>{formatMoney(selected.latestLandedCostPaise)}</strong></div>
-                  )}
+                  <div className="mrp-price"><span>MRP</span><strong>{formatMoney(selected.mrpPaise)}</strong></div>
                 </div>
 
-                <fieldset>
-                  <legend>Final unit price</legend>
+                {saleType === "WHOLESALE" ? (
+                <fieldset className="wholesale-price-editor">
+                  <legend>Agreed price per item</legend>
                   <div className="preset-row">
-                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selectedListedPrice)}>
-                      {saleType === "WHOLESALE" ? "Wholesale" : "Retail"}
+                    <button
+                      type="button"
+                      onClick={() => selectRegularPrice(selectedListedPrice)}
+                    >
+                      Suggested 10% · {formatMoney(selectedListedPrice)}
                     </button>
-                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(Math.max(selected.minimumPricePaise, Math.round(selectedListedPrice * 0.95)))}>5% off</button>
-                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selected.minimumPricePaise)}>Maximum</button>
+                    <button
+                      type="button"
+                      onClick={() => selectRegularPrice(fifoCostPerUnit(selected, quantity))}
+                    >
+                      At FIFO cost · {formatMoney(fifoCostPerUnit(selected, quantity))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => selectRegularPrice(selected.standardPricePaise)}
+                    >
+                      Retail price · {formatMoney(selected.standardPricePaise)}
+                    </button>
+                  </div>
+                  <label className="negotiated-price-field">
+                    <span>Enter negotiated price</span>
+                    <span className="currency-input">
+                      <b aria-hidden="true">₹</b>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={priceInputRupees}
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          if (!/^\d*(?:\.\d{0,2})?$/.test(next)) return;
+                          setPriceInputRupees(next);
+                          if (next) setUnitPrice(Math.round(Number(next) * 100));
+                        }}
+                        aria-label="Negotiated wholesale price per item"
+                      />
+                    </span>
+                  </label>
+                  <p className="wholesale-price-note">
+                    Suggested includes 10% margin on the oldest stock being sold. Negotiable range: {formatMoney(fifoCostPerUnit(selected, quantity))}–{formatMoney(Math.max(selectedListedPrice, selected.standardPricePaise, selected.mrpPaise))} per item.
+                  </p>
+                </fieldset>
+                ) : (
+                <fieldset>
+                  <legend>Extra discount per item</legend>
+                  <div className="preset-row">
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(Math.max(selectedListedPrice - maxExtraDiscount, Math.round(selectedListedPrice * 0.95)))}>5% off</button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selectedListedPrice - suggestedDiscount)}>Suggested · {formatMoney(suggestedDiscount)}</button>
+                    <button disabled={!online && !offlineSellingReady} type="button" onClick={() => selectRegularPrice(selectedListedPrice - maxExtraDiscount)}>Maximum · {formatMoney(maxExtraDiscount)}</button>
                   </div>
                   {!exceptionMode && (
                     <input
                       className="price-slider"
                       type="range"
-                      min={selected.minimumPricePaise}
-                      max={selectedListedPrice}
-                      step="500"
-                      value={unitPrice}
-                      onChange={(event) => setUnitPrice(Number(event.target.value))}
-                      aria-label="Final unit price"
+                      min="0"
+                      max={maxExtraDiscount}
+                      step="100"
+                      value={additionalDiscount}
+                      onChange={(event) => setUnitPrice(selectedListedPrice - Number(event.target.value))}
+                      aria-label="Additional discount"
                       disabled={!online && !offlineSellingReady}
                     />
                   )}
                   <div className="price-output">
-                    <strong>{formatMoney(unitPrice)}</strong>
-                    <span>{exceptionMode ? "Owner-authorized exception" : `Up to ${formatMoney(maxExtraDiscount)} extra discount allowed`}</span>
+                    <span>
+                      Discount per item
+                      <strong>{formatMoney(additionalDiscount)}{additionalDiscount > 0 ? ` (${additionalDiscountPercent}%)` : ""}</strong>
+                    </span>
+                    <span>
+                      Final price per item
+                      <strong>{formatMoney(unitPrice)}</strong>
+                    </span>
                   </div>
-                </fieldset>
-
-                <section className="exception-box" aria-label="Lower price approval">
-                  {!showLowerPrice ? (
-                    <button disabled={!online} type="button" className="text-button" onClick={() => setShowLowerPrice(true)}>
-                      Customer needs a lower price
-                    </button>
-                  ) : (
-                    <>
-                      <div className="form-row two-columns compact-row">
-                        <label>Requested unit price (₹)
-                          <input
-                            type="number"
-                            min="0.01"
-                            max={(selected.minimumPricePaise - 1) / 100}
-                            step="0.01"
-                            value={lowerPriceRupees}
-                            onChange={(event) => {
-                              setLowerPriceRupees(event.target.value);
-                              setApproval(null);
-                              setExceptionMode(false);
-                              setUnitPrice(selectedListedPrice);
-                            }}
-                            inputMode="decimal"
-                          />
-                        </label>
-                        <button type="button" onClick={requestLowerPrice} disabled={!online || checkingApproval}>
-                          {checkingApproval ? "Please wait…" : role === "BUSINESS_OWNER" ? "Use owner exception" : "Request owner approval"}
-                        </button>
-                      </div>
-                      {role === "BUSINESS_OWNER" && exceptionMode && (
-                        <div className="form-row two-columns compact-row">
-                          <label>Reason
-                            <select value={exceptionReason} onChange={(event) => setExceptionReason(event.target.value)}>
-                              {exceptionReasons.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                            </select>
-                          </label>
-                          <label>{exceptionReason === "OTHER" ? "Required note" : "Optional note"}
-                            <input value={exceptionNote} onChange={(event) => setExceptionNote(event.target.value)} maxLength={500} />
-                          </label>
-                        </div>
-                      )}
-                      {approval && (
-                        <div className={`approval-status ${approval.status.toLowerCase()}`}>
-                          <span>Request {approval.status.toLowerCase()} · {formatMoney(approval.requestedUnitPricePaise)}</span>
-                          {approval.status === "PENDING" && (
-                            <button type="button" onClick={checkApproval} disabled={checkingApproval}>{checkingApproval ? "Checking…" : "Check owner decision"}</button>
-                          )}
-                        </div>
-                      )}
-                      <button type="button" className="text-button muted" onClick={() => selectRegularPrice(selectedListedPrice)}>Cancel lower price</button>
-                    </>
+                  {customerSaving > 0 && (
+                    <p className="discount-saving-note">
+                      Customer saves {formatMoney(customerSaving)} from MRP on this cart line.
+                    </p>
                   )}
-                </section>
-
-                <div className="form-row">
-                  <label>Quantity
-                    <input
-                      type="number"
-                      min="1"
-                      max={Math.max(1, selectedAvailableQuantity)}
-                      value={quantity}
-                      onChange={(event) => changeQuantity(Number(event.target.value), selected)}
-                      disabled={!online && !offlineSellingReady}
-                      required
-                    />
-                  </label>
-                </div>
+                </fieldset>
+                )}
 
                 <div className="checkout-total line-preview">
-                  <span>
-                    <small>Customer saves {formatMoney(customerSaving)}</small>
-                    {expectedGrossProfit !== undefined && <small>Expected gross result {formatMoney(expectedGrossProfit)}</small>}
-                    {expectedReplacementMargin !== undefined && <small>Replacement margin {formatMoney(expectedReplacementMargin)}</small>}
-                    Line total
-                  </span>
+                  <span>Cart total · {quantity} {quantity === 1 ? "item" : "items"}</span>
                   <strong>{formatMoney(selectedTotal)}</strong>
                 </div>
-                <button
-                  className="complete-button add-cart-button"
-                  type="submit"
-                  disabled={(!online && !offlineSellingReady)
-                    || selectedAvailableQuantity < quantity
-                    || queuedSalesBlockOnlineCheckout
-                    || approval?.status === "PENDING"}
-                >
-                  {!online && !offlineSellingReady
-                    ? "Reconnect to add to cart"
-                    : queuedSalesBlockOnlineCheckout
-                      ? "Sync queued sales first"
-                    : cart.some((line) => line.product.id === selected.id)
-                      ? "Update cart"
-                      : "Add to cart"}
-                </button>
+                <div className="line-editor-actions">
+                  <button
+                    aria-label="Close without applying"
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => setSelected(null)}
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="complete-button"
+                    type="submit"
+                    disabled={(!online && !offlineSellingReady)
+                      || selectedAvailableQuantity < quantity
+                      || queuedSalesBlockOnlineCheckout
+                      || approval?.status === "PENDING"}
+                  >
+                    {!online && !offlineSellingReady
+                      ? "Reconnect to continue"
+                      : queuedSalesBlockOnlineCheckout
+                        ? "Sync queued sales first"
+                        : saleType === "WHOLESALE"
+                          ? `Use ${formatMoney(unitPrice)} wholesale price`
+                        : additionalDiscount > 0
+                          ? `Apply ${formatMoney(additionalDiscount)} discount`
+                          : "Keep selling price"}
+                  </button>
+                </div>
               </form>
-            )}
+              )}
+            </Modal>
 
             <section className="cart-section" aria-labelledby="cart-heading">
               <div className="section-title">
                 <h2 id="cart-heading">Cart</h2>
-                <span>{cartUnits} units</span>
+                <div className="cart-heading-actions">
+                  <span>{cartUnits} {cartUnits === 1 ? "unit" : "units"}</span>
+                  {cart.length > 0 && (
+                    <button type="button" className="cancel-sale-action" onClick={cancelSale}>
+                      Cancel sale
+                    </button>
+                  )}
+                </div>
               </div>
               {cart.length === 0 ? (
-                <p className="cart-empty">No products added yet.</p>
+                <>
+                  <p className="cart-empty">No products added yet.</p>
+                  <div className="payment-empty">
+                    <span>Checkout</span>
+                    <strong>Waiting for the first product</strong>
+                    <p>Customer and payment options will appear here.</p>
+                  </div>
+                </>
               ) : (
                 <>
                   <div className="cart-lines">
@@ -1617,17 +1737,52 @@ export default function SellWorkspace({
                       <article className="cart-row" key={line.product.id}>
                         <div>
                           <strong>{line.product.name}</strong>
-                          <small>{line.quantity} × {formatMoney(line.unitPricePaise)}{line.exceptionMode ? " · approved exception" : ""}</small>
+                          <small>
+                            {formatMoney(line.unitPricePaise)} each
+                            {listedPrice(line.product, saleType, line.quantity) > line.unitPricePaise
+                              ? ` · ${formatMoney(listedPrice(line.product, saleType, line.quantity) - line.unitPricePaise)} discount each`
+                              : ""}
+                            {line.exceptionMode ? " · approved" : ""}
+                          </small>
                         </div>
                         <strong>{formatMoney(line.quantity * line.unitPricePaise)}</strong>
                         <div className="cart-actions">
-                          <button type="button" onClick={() => chooseProduct(line.product)}>Edit</button>
+                          <div className="cart-quantity" aria-label={`Quantity for ${line.product.name}`}>
+                            <button
+                              type="button"
+                              aria-label={`Decrease ${line.product.name} quantity`}
+                              onClick={() => changeCartQuantity(line, line.quantity - 1)}
+                            >
+                              −
+                            </button>
+                            <strong aria-live="polite">{line.quantity}</strong>
+                            <button
+                              type="button"
+                              aria-label={`Increase ${line.product.name} quantity`}
+                              onClick={() => changeCartQuantity(line, line.quantity + 1)}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <button type="button" onClick={() => chooseProduct(line.product)}>Discount</button>
                           <button type="button" onClick={() => removeCartLine(line.product.id)}>Remove</button>
                         </div>
                       </article>
                     ))}
                   </div>
 
+                  <button
+                    type="button"
+                    className="cart-review sale-action-bar"
+                    onClick={() => setCheckoutOpen(true)}
+                  >
+                    <span>Review payment · {cartUnits} {cartUnits === 1 ? "unit" : "units"}</span>
+                    <strong>{formatMoney(cartTotal)}</strong>
+                  </button>
+
+                  {cart.length > 0 && (
+                  <section className="sale-checkout-step" aria-label="Checkout">
+                  <div className="sale-checkout-modal">
                   <form className="cart-checkout" onSubmit={submitSale}>
                     {!online && (
                       <p className="offline-read-only">
@@ -1636,30 +1791,213 @@ export default function SellWorkspace({
                       </p>
                     )}
                     <fieldset className="online-only-checkout" hidden={!online}>
+                    <section className="customer-section" aria-labelledby="customer-heading">
+                      <div className="section-title customer-section-title">
+                        <h3 id="customer-heading">Customer</h3>
+                        <div className="customer-heading-actions">
+                          <span>
+                            {saleType === "WHOLESALE"
+                              ? "Required for Wholesale"
+                              : requiresCustomer
+                                ? "Ask for details"
+                                : "Optional"}
+                          </span>
+                          <button
+                            type="button"
+                            className="customer-add-action"
+                            onClick={() => setShowNewCustomer(true)}
+                          >
+                            <svg viewBox="0 0 20 20" aria-hidden="true">
+                              <path d="M10 4v12M4 10h12" />
+                            </svg>
+                            Add customer
+                          </button>
+                        </div>
+                      </div>
+                      {selectedCustomer ? (
+                        <div className="selected-customer">
+                          <span>
+                            <strong>{selectedCustomer.name}</strong>
+                            <small>
+                              {selectedCustomer.phone ?? "Phone not added"} · {selectedCustomer.totalOrders} earlier orders
+                            </small>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCustomer(null);
+                              setCustomerQuery("");
+                              setCustomerResults([]);
+                              setActiveCustomerIndex(0);
+                              requestAnimationFrame(() => {
+                                customerSearchRef.current?.focus();
+                              });
+                            }}
+                          >
+                            Change
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div
+                            className={`customer-quick-search${
+                              customerResults.length ? " has-results" : ""
+                            }`}
+                          >
+                            <input
+                              ref={customerSearchRef}
+                              value={customerQuery}
+                              aria-label="Search customer by phone number or name"
+                              aria-autocomplete="list"
+                              aria-controls="sale-customer-results"
+                              aria-expanded={customerResults.length > 0}
+                              aria-activedescendant={customerResults[activeCustomerIndex]
+                                ? `sale-customer-${customerResults[activeCustomerIndex].id}`
+                                : undefined}
+                              role="combobox"
+                              placeholder="Search name or phone"
+                              autoComplete="off"
+                              onChange={(event) => {
+                                const next = event.target.value;
+                                setCustomerQuery(next);
+                                setActiveCustomerIndex(0);
+                                if (next.trim().length < 2) {
+                                  setCustomerResults([]);
+                                  setCustomerLoading(false);
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (!customerResults.length) return;
+                                if (event.key === "ArrowDown") {
+                                  event.preventDefault();
+                                  setActiveCustomerIndex((current) =>
+                                    (current + 1) % customerResults.length);
+                                } else if (event.key === "ArrowUp") {
+                                  event.preventDefault();
+                                  setActiveCustomerIndex((current) =>
+                                    (current - 1 + customerResults.length)
+                                    % customerResults.length);
+                                } else if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  selectCustomer(customerResults[activeCustomerIndex]);
+                                } else if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setCustomerResults([]);
+                                }
+                              }}
+                            />
+                            {customerLoading && (
+                              <p className="customer-search-status">Searching customers…</p>
+                            )}
+                            {!customerLoading && customerQuery.trim().length >= 2 && customerResults.length === 0 && (
+                              <p className="customer-search-status">No matching customer found.</p>
+                            )}
+                            {customerResults.length > 0 && (
+                              <div
+                                className="customer-results"
+                                id="sale-customer-results"
+                                role="listbox"
+                                aria-label="Customer search results"
+                              >
+                                {customerResults.map((customer, index) => (
+                                  <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={index === activeCustomerIndex}
+                                    className={index === activeCustomerIndex ? "is-active" : ""}
+                                    id={`sale-customer-${customer.id}`}
+                                    key={customer.id}
+                                    onMouseEnter={() => setActiveCustomerIndex(index)}
+                                    onClick={() => selectCustomer(customer)}
+                                  >
+                                    <span>
+                                      <strong>{customer.name}</strong>
+                                      <small>{customer.phone ?? "Phone not added"}{customer.locality ? ` · ${customer.locality}` : ""}</small>
+                                    </span>
+                                    <span>{customer.totalOrders} orders</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <Modal
+                            open={showNewCustomer}
+                            title="Add customer"
+                            description={saleType === "WHOLESALE"
+                              ? "Create the shopkeeper record and use it for this Wholesale sale. Only the name is required."
+                              : "Save the customer and attach them to this sale. Only the name is required."}
+                            onClose={() => setShowNewCustomer(false)}
+                            panelClassName="new-customer-modal-panel"
+                          >
+                            <form
+                              className="new-customer-fields"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void createCustomer();
+                              }}
+                            >
+                              <div className="form-row two-columns">
+                                <label>Name
+                                  <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} autoFocus required />
+                                </label>
+                                <label>Phone number (optional)
+                                  <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} inputMode="tel" />
+                                </label>
+                                <label>Locality (optional)
+                                  <input value={customerLocality} onChange={(event) => setCustomerLocality(event.target.value)} />
+                                </label>
+                                <label>Email (optional)
+                                  <input value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} type="email" />
+                                </label>
+                              </div>
+                              <button
+                                className="button new-customer-submit"
+                                type="submit"
+                                disabled={customerLoading || !customerName.trim()}
+                              >
+                                {customerLoading ? "Saving…" : "Save and select customer"}
+                              </button>
+                            </form>
+                          </Modal>
+                        </>
+                      )}
+                    </section>
+
                     <section className="payment-section" aria-labelledby="payment-heading">
                       <div className="section-title">
                         <h3 id="payment-heading">Payment</h3>
-                        <span>{splitPayment ? "Two methods" : "One method"}</span>
+                        <span>
+                          {recordDue ? "Balance due" : splitPayment ? "Two methods" : "Paid in full"}
+                        </span>
                       </div>
-                      <div className="form-row two-columns">
+                      <div className="form-row two-columns payment-method-fields">
                         <label>{splitPayment ? "First method" : "Payment method"}
-                          <select
+                          <CustomSelect
                             value={paymentMode}
-                            onChange={(event) => {
-                              const next = event.target.value;
+                            ariaLabel={splitPayment ? "First payment method" : "Payment method"}
+                            options={paymentOptions}
+                            onChange={(next) => {
                               setPaymentMode(next);
                               if (next === secondPaymentMode) {
                                 setSecondPaymentMode(next === "UPI" ? "CASH" : "UPI");
                               }
                             }}
-                          >
-                            <option value="UPI">UPI</option>
-                            <option value="CASH">Cash</option>
-                            <option value="CARD">Card</option>
-                            <option value="BANK_TRANSFER">Bank transfer</option>
-                          </select>
+                          />
                         </label>
-                        {splitPayment && (
+                        {recordDue ? (
+                          <label>Received now (₹)
+                            <input
+                              type="number"
+                              min="0"
+                              max={Math.max(0, (cartTotal - 1) / 100)}
+                              step="0.01"
+                              inputMode="decimal"
+                              value={amountReceivedRupees}
+                              onChange={(event) => setAmountReceivedRupees(event.target.value)}
+                              placeholder="0"
+                            />
+                          </label>
+                        ) : splitPayment && (
                           <label>First amount (₹)
                             <input
                               type="number"
@@ -1676,19 +2014,12 @@ export default function SellWorkspace({
                       {splitPayment && (
                         <div className="split-remainder">
                           <label>Second method
-                            <select
+                            <CustomSelect
                               value={secondPaymentMode}
-                              onChange={(event) => setSecondPaymentMode(event.target.value)}
-                            >
-                              {[
-                                ["UPI", "UPI"],
-                                ["CASH", "Cash"],
-                                ["CARD", "Card"],
-                                ["BANK_TRANSFER", "Bank transfer"],
-                              ].filter(([value]) => value !== paymentMode).map(([value, label]) => (
-                                <option key={value} value={value}>{label}</option>
-                              ))}
-                            </select>
+                              ariaLabel="Second payment method"
+                              options={paymentOptions.filter((option) => option.value !== paymentMode)}
+                              onChange={setSecondPaymentMode}
+                            />
                           </label>
                           <div>
                             <span>Remaining amount</span>
@@ -1706,129 +2037,52 @@ export default function SellWorkspace({
                           checked={splitPayment}
                           onChange={(event) => {
                             setSplitPayment(event.target.checked);
+                            if (event.target.checked) {
+                              setRecordDue(false);
+                              setAmountReceivedRupees("");
+                            }
                             setFirstPaymentRupees("");
                           }}
+                          disabled={recordDue}
                         />
-                        Split between two payment methods
+                        Split payment
                       </label>
-                    </section>
-
-                    <section className="customer-section" aria-labelledby="customer-heading">
-                      <div className="section-title">
-                        <h3 id="customer-heading">Customer</h3>
-                        <span>
-                          {saleType === "WHOLESALE"
-                            ? "Required for Wholesale"
-                            : requiresCustomer
-                              ? "Ask for details"
-                              : "Optional"}
-                        </span>
-                      </div>
-                      {selectedCustomer ? (
-                        <div className="selected-customer">
-                          <span>
-                            <strong>{selectedCustomer.name}</strong>
-                            <small>
-                              {selectedCustomer.phone} · {selectedCustomer.totalOrders} earlier orders
-                            </small>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedCustomer(null);
-                              setShowCustomerFinder(true);
-                            }}
-                          >
-                            Change
-                          </button>
+                      <label className="customer-toggle due-toggle">
+                        <input
+                          type="checkbox"
+                          checked={recordDue}
+                          onChange={(event) => {
+                            setRecordDue(event.target.checked);
+                            if (event.target.checked) {
+                              setSplitPayment(false);
+                              setFirstPaymentRupees("");
+                            } else {
+                              setAmountReceivedRupees("");
+                            }
+                          }}
+                        />
+                        Keep balance due
+                      </label>
+                      {recordDue && (
+                        <div className="due-payment-fields">
+                          <label>Reason for balance
+                            <CustomSelect
+                              value={dueReason}
+                              ariaLabel="Reason payment is pending"
+                              options={dueReasonOptions}
+                              onChange={setDueReason}
+                            />
+                          </label>
+                          <div className="due-balance">
+                            <span>Balance due</span>
+                            <strong>
+                              {balanceDuePaise > 0 ? formatMoney(balanceDuePaise) : "—"}
+                            </strong>
+                          </div>
+                          {!selectedCustomer && (
+                            <p>Select a customer to track this balance.</p>
+                          )}
                         </div>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="customer-finder-button"
-                            onClick={() => setShowCustomerFinder((current) => !current)}
-                          >
-                            Find or add customer
-                          </button>
-                          <Modal
-                            open={showCustomerFinder}
-                            title="Find or add customer"
-                            description={saleType === "WHOLESALE"
-                              ? "Choose the shopkeeper for this Wholesale sale."
-                              : "Search existing records before creating a new customer."}
-                            onClose={() => setShowCustomerFinder(false)}
-                          >
-                            <div className="customer-finder customer-finder--modal">
-                              <label>Phone number or name
-                                <div className="inline-find">
-                                  <input
-                                    value={customerQuery}
-                                    onChange={(event) => setCustomerQuery(event.target.value)}
-                                    autoComplete="off"
-                                  />
-                                  <button type="button" onClick={findCustomers} disabled={customerLoading}>
-                                    {customerLoading ? "Finding…" : "Find"}
-                                  </button>
-                                </div>
-                              </label>
-                              {customerResults.length > 0 && (
-                                <div className="customer-results">
-                                  {customerResults.map((customer) => (
-                                    <button
-                                      type="button"
-                                      key={customer.id}
-                                      onClick={() => {
-                                        setSelectedCustomer(customer);
-                                        setShowCustomerFinder(false);
-                                        resetGuestDecision();
-                                      }}
-                                    >
-                                      <span>
-                                        <strong>{customer.name}</strong>
-                                        <small>{customer.phone}{customer.locality ? ` · ${customer.locality}` : ""}</small>
-                                      </span>
-                                      <span>{customer.totalOrders} orders</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                              {!showNewCustomer ? (
-                                <button
-                                  type="button"
-                                  className="text-button"
-                                  onClick={() => setShowNewCustomer(true)}
-                                >
-                                  Customer not found — add new
-                                </button>
-                              ) : (
-                                <div className="new-customer-fields">
-                                  <div className="form-row two-columns">
-                                    <label>Name
-                                      <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
-                                    </label>
-                                    <label>Phone number
-                                      <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} inputMode="tel" />
-                                    </label>
-                                    <label>Locality (optional)
-                                      <input value={customerLocality} onChange={(event) => setCustomerLocality(event.target.value)} />
-                                    </label>
-                                    <label>Email (optional)
-                                      <input value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} type="email" />
-                                    </label>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={createCustomer}
-                                    disabled={customerLoading || !customerName.trim() || !customerPhone.trim()}
-                                  >
-                                    {customerLoading ? "Saving…" : "Save and select customer"}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </Modal>
-                        </>
                       )}
                     </section>
 
@@ -1882,17 +2136,34 @@ export default function SellWorkspace({
                     )}
 
                     <div className="checkout-total cart-total">
-                      <span><small>{cart.length} products · {cartUnits} units</small>Total</span>
+                      <span>
+                        <small>
+                          {cart.length} {cart.length === 1 ? "product" : "products"}
+                          {" · "}
+                          {cartUnits} {cartUnits === 1 ? "unit" : "units"}
+                        </small>
+                        {recordDue && balanceDuePaise > 0
+                          ? `${formatMoney(balanceDuePaise)} due`
+                          : "Total"}
+                      </span>
                       <strong>{formatMoney(cartTotal)}</strong>
                     </div>
                     <button
-                      className="complete-button"
+                      className="complete-button sale-action-bar"
                       type="submit"
                       disabled={!online || submitting || !guestCompletionReady
                         || queuedSalesBlockOnlineCheckout
-                        || (splitPayment && !splitPaymentValid)}
+                        || (!recordDue && splitPayment && !splitPaymentValid)
+                        || !duePaymentValid}
                     >
-                      {submitting ? "Completing all lines safely…" : "Complete sale"}
+                      <span>
+                        {submitting
+                          ? "Completing safely…"
+                          : recordDue && balanceDuePaise > 0
+                            ? `Complete sale · ${formatMoney(balanceDuePaise)} due`
+                            : "Complete sale"}
+                      </span>
+                      <strong>{formatMoney(cartTotal)}</strong>
                     </button>
                     </fieldset>
                     {!online && (
@@ -1902,14 +2173,13 @@ export default function SellWorkspace({
                           <span>Saved on this device first</span>
                         </div>
                         <label>Payment method
-                          <select
+                          <CustomSelect
                             value={["CASH", "UPI"].includes(paymentMode) ? paymentMode : "UPI"}
-                            onChange={(event) => setPaymentMode(event.target.value)}
+                            ariaLabel="Offline payment method"
+                            options={paymentOptions.slice(0, 2)}
+                            onChange={setPaymentMode}
                             disabled={!offlineSellingReady}
-                          >
-                            <option value="UPI">UPI</option>
-                            <option value="CASH">Cash</option>
-                          </select>
+                          />
                         </label>
                         {requiresCustomer && (
                           <p className="alert error" role="alert">
@@ -1917,24 +2187,255 @@ export default function SellWorkspace({
                           </p>
                         )}
                         <div className="checkout-total cart-total">
-                          <span><small>{cart.length} products · {cartUnits} units</small>Total</span>
+                          <span>
+                            <small>
+                              {cart.length} {cart.length === 1 ? "product" : "products"}
+                              {" · "}
+                              {cartUnits} {cartUnits === 1 ? "unit" : "units"}
+                            </small>
+                            Total
+                          </span>
                           <strong>{formatMoney(cartTotal)}</strong>
                         </div>
                         <button
-                          className="complete-button"
+                          className="complete-button sale-action-bar"
                           type="submit"
                           disabled={!offlineSellingReady || submitting || requiresCustomer}
                         >
-                          {submitting ? "Saving safely…" : "Queue offline sale"}
+                          <span>{submitting ? "Saving safely…" : "Queue offline sale"}</span>
+                          <strong>{formatMoney(cartTotal)}</strong>
                         </button>
                       </section>
                     )}
                   </form>
+                  </div>
+                  </section>
+                  )}
                 </>
               )}
             </section>
           </section>
-        </div>}
+        </div>
+
+        <Modal
+          open={Boolean(receipt)}
+          title="Sale complete"
+          description="Payment, stock and customer account were updated together."
+          onClose={closeReceipt}
+          panelClassName="receipt-modal-panel"
+          footer={receipt ? (
+            <div className="receipt-modal-footer">
+              <div className="receipt-actions">
+                <div className="receipt-share">
+                  <button
+                    type="button"
+                    className="share-receipt-button"
+                    aria-expanded={receiptExportOpen}
+                    onClick={() => {
+                      setReceiptExportOpen((open) => !open);
+                      setReceiptExportStatus("");
+                    }}
+                  >
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 10v5a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-5" />
+                    </svg>
+                    Share receipt
+                  </button>
+
+                  {receiptExportOpen && (
+                    <div className="receipt-export-menu" aria-label="Receipt sharing options">
+                      <button
+                        type="button"
+                        onClick={() => void exportReceipt("copy")}
+                        disabled={Boolean(receiptExporting)}
+                      >
+                        <svg viewBox="0 0 20 20" aria-hidden="true">
+                          <rect x="6" y="6" width="10" height="10" rx="2" />
+                          <path d="M4 13H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v1" />
+                        </svg>
+                        {receiptExporting === "copy" ? "Copying…" : "Copy as image"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void exportReceipt("pdf")}
+                        disabled={Boolean(receiptExporting)}
+                      >
+                        <svg viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M5 2h7l3 3v13H5zM11 2v4h4M7 14h6M7 11h6" />
+                        </svg>
+                        {receiptExporting === "pdf" ? "Preparing…" : "Download PDF"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void exportReceipt("image")}
+                        disabled={Boolean(receiptExporting)}
+                      >
+                        <svg viewBox="0 0 20 20" aria-hidden="true">
+                          <path d="M10 2v10m0 0l-4-4m4 4l4-4M3 15v3h14v-3" />
+                        </svg>
+                        {receiptExporting === "image" ? "Preparing…" : "Download image"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button type="button" className="new-sale-button" onClick={closeReceipt}>
+                  New sale
+                </button>
+              </div>
+
+              {receiptExportStatus && (
+                <p className="receipt-export-status" role="status">
+                  {receiptExportStatus}
+                </p>
+              )}
+            </div>
+          ) : undefined}
+        >
+          {receipt && (
+            <div
+              className="thermal-receipt-modal"
+              style={{
+                "--receipt-feed-duration": `${Math.min(5.6, 2.4 + receipt.lines.length * 0.28)}s`,
+              } as CSSProperties}
+            >
+              <div className="receipt-printer" aria-hidden="true">
+                <span className="receipt-printer-light" />
+                <span className="receipt-printer-slot" />
+              </div>
+
+              <article
+                className={`thermal-receipt-paper${
+                  receipt.balanceDuePaise > 0 ? " has-balance-due" : " is-paid"
+                }`}
+                aria-labelledby="receipt-heading"
+              >
+                <header className="thermal-receipt-brand">
+                  <Image src="/logo.png" alt="" width={44} height={44} unoptimized />
+                  <strong>ItsMyToy</strong>
+                  <span>Wholesale &amp; Retail</span>
+                  <h2 id="receipt-heading">Sale Receipt</h2>
+                  <span className="receipt-payment-status">
+                    {receipt.balanceDuePaise > 0
+                      ? receipt.amountPaidPaise > 0
+                        ? "Partly paid"
+                        : "Payment due"
+                      : "Paid"}
+                  </span>
+                </header>
+
+                <dl className="thermal-receipt-meta">
+                  <div>
+                    <dt>Sale receipt no.</dt>
+                    <dd>{receipt.saleNumber}</dd>
+                  </div>
+                  <div>
+                    <dt>Date &amp; time</dt>
+                    <dd>{receiptDate.format(new Date(receipt.completedAt))}</dd>
+                  </div>
+                  <div>
+                    <dt>Sale type</dt>
+                    <dd>{receipt.saleType === "WHOLESALE" ? "Wholesale" : "Retail"}</dd>
+                  </div>
+                  <div>
+                    <dt>Customer</dt>
+                    <dd>{receipt.customerName ?? "Walk-in customer"}</dd>
+                  </div>
+                </dl>
+
+                <section className="thermal-receipt-items" aria-label="Items sold">
+                  <div className="thermal-receipt-table-head" aria-hidden="true">
+                    <span>Item</span>
+                    <span>Amount</span>
+                  </div>
+                  {receipt.lines.map((line) => (
+                    <div className="thermal-receipt-line" key={line.variantId}>
+                      <span>
+                        <strong>{line.productName}</strong>
+                        <small>
+                          {line.quantity} × {formatMoney(line.unitPricePaise)}
+                          {" · "}
+                          {line.sku}
+                        </small>
+                      </span>
+                      <strong>{formatMoney(line.totalPaise)}</strong>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="thermal-receipt-payment" aria-label="Payment summary">
+                  {receiptDiscounts && receiptDiscounts.additionalDiscountPaise > 0 && (
+                    <div className="thermal-additional-discount">
+                      <span>Additional discount</span>
+                      <strong>-{formatMoney(receiptDiscounts.additionalDiscountPaise)}</strong>
+                    </div>
+                  )}
+
+                  {receiptDiscounts && receiptDiscounts.totalSavingPaise > 0 && (
+                    <div className="thermal-total-saving">
+                      <span>Total saving vs MRP</span>
+                      <strong>{formatMoney(receiptDiscounts.totalSavingPaise)}</strong>
+                    </div>
+                  )}
+
+                  {receipt.payments.length ? receipt.payments.map((payment) => (
+                    <div key={payment.paymentMode}>
+                      <span>Received by {paymentLabel(payment.paymentMode)}</span>
+                      <strong>{formatMoney(payment.amountPaise)}</strong>
+                    </div>
+                  )) : (
+                    <div>
+                      <span>Payment received</span>
+                      <strong>{formatMoney(0)}</strong>
+                    </div>
+                  )}
+
+                  {receipt.balanceDuePaise > 0 && (
+                    <div className="thermal-balance-due">
+                      <span>
+                        <strong>Balance due</strong>
+                        <small>
+                          {receipt.dueReason === "DIGITAL_PAYMENT_PENDING"
+                            ? "Digital payment pending"
+                            : "Customer will pay later"}
+                        </small>
+                      </span>
+                      <strong>{formatMoney(receipt.balanceDuePaise)}</strong>
+                    </div>
+                  )}
+
+                  <div className="thermal-grand-total">
+                    <span>Grand total</span>
+                    <strong>{formatMoney(receipt.totalPaise)}</strong>
+                  </div>
+                </section>
+
+                <footer className="thermal-receipt-footer">
+                  <strong>Thank you for shopping with us</strong>
+                  <span>Keep this receipt for payment and exchange reference.</span>
+                  <small>This is a sale receipt, not a GST tax invoice.</small>
+                </footer>
+              </article>
+              <div className="receipt-tear-edge" aria-hidden="true">
+                {Array.from({ length: 18 }, (_, index) => <span key={index} />)}
+              </div>
+
+            </div>
+          )}
+        </Modal>
+
+        {!receipt && cart.length > 0 && !mobileCartOpen && !checkoutOpen && (
+          <button
+            type="button"
+            className="mobile-cart-bar sale-action-bar"
+            onClick={() => {
+              setCheckoutOpen(false);
+              setMobileCartOpen(true);
+            }}
+          >
+            <span>View cart · {cartUnits} {cartUnits === 1 ? "unit" : "units"}</span>
+            <strong>{formatMoney(cartTotal)}</strong>
+          </button>
+        )}
       </section>
     </AppShell>
   );

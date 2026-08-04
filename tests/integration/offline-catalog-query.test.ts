@@ -77,7 +77,8 @@ describeWithDatabase("offline catalogue database query", () => {
   it("returns every barcode while keeping operator-only pricing", async () => {
     const result = await runtimePool.query<{
       barcodes: string[];
-      minimum_price_paise: string;
+      suggested_minimum_price_paise: string;
+      pricing_cost_paise: string;
       inventory_value_paise: string | null;
     }>(
       SELLABLE_PRODUCTS_SQL,
@@ -88,7 +89,18 @@ describeWithDatabase("offline catalogue database query", () => {
       `PRIMARY-${suffix}`,
       `SUPPLIER-${suffix}`,
     ]);
-    expect(result.rows[0].minimum_price_paise).toBe("72000");
+    expect(result.rows[0].suggested_minimum_price_paise).toBe("72000");
+    expect(result.rows[0].pricing_cost_paise).toBe("40000");
     expect(result.rows[0].inventory_value_paise).toBeNull();
+  });
+
+  it("finds a product from a partial SKU while the operator is typing", async () => {
+    const result = await runtimePool.query<{ sku: string }>(
+      SELLABLE_PRODUCTS_SQL,
+      [businessId, "STORE_OPERATOR", `IMT-OFFLINE-${suffix.slice(0, 8)}`, 12],
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].sku).toBe(`IMT-OFFLINE-${suffix}`);
   });
 });

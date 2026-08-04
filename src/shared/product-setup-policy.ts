@@ -25,6 +25,46 @@ export function normalizeSkuCode(value: string, maximumLength = 3): string {
     .slice(0, maximumLength);
 }
 
+export function suggestSkuCode(
+  value: string,
+  existingCodes: readonly string[] = [],
+  maximumLength = 3,
+): string {
+  const words = value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return "";
+
+  const compact = words.join("");
+  const initials = words.map((word) => word[0]).join("");
+  const preferred = words.length === 2
+    ? initials.slice(0, maximumLength)
+    : compact.slice(0, maximumLength);
+  const candidates = [
+    preferred,
+    compact.slice(0, maximumLength),
+    initials.slice(0, maximumLength),
+    ...(words.length > 1
+      ? [`${words[0].slice(0, Math.max(1, maximumLength - 1))}${words.at(-1)?.[0] ?? ""}`]
+      : []),
+  ]
+    .map((candidate) => normalizeSkuCode(candidate, maximumLength))
+    .filter((candidate) => candidate.length >= 2);
+  const used = new Set(existingCodes.map((code) => normalizeSkuCode(code, maximumLength)));
+  const available = candidates.find((candidate) => !used.has(candidate));
+  if (available) return available;
+
+  const prefix = normalizeSkuCode(compact, Math.max(1, maximumLength - 1));
+  for (let suffix = 1; suffix <= 9; suffix += 1) {
+    const candidate = normalizeSkuCode(`${prefix}${suffix}`, maximumLength);
+    if (candidate.length >= 2 && !used.has(candidate)) return candidate;
+  }
+  return preferred;
+}
+
 export function buildInternalSku(
   categoryCode: string,
   subcategoryCode: string,
@@ -56,6 +96,10 @@ export function buildInternalSku(
 
 function roundUpToFiveRupees(paise: number): number {
   return Math.ceil(paise / 500) * 500;
+}
+
+export function minimumGrowthPrice(purchaseCostPaise: number): number {
+  return Math.ceil(purchaseCostPaise * 11 / 1_000) * 100;
 }
 
 export function recommendedPriceFloors(

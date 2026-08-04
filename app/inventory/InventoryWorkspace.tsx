@@ -3,12 +3,16 @@
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import PageHeader from "@/components/ui/PageHeader";
+import CustomSelect from "@/components/ui/CustomSelect";
+import Modal from "@/components/ui/Modal";
 import { buildLabelCsv } from "@/shared/label-csv";
 
 type Role = "BUSINESS_OWNER" | "TRUSTED_OPERATOR" | "STORE_OPERATOR";
 type StockCondition = "SELLABLE" | "OPEN_BOX" | "DAMAGED";
+type InventoryFilter = "ALL" | "LOW" | "OUT" | "MISSING_RACK";
+type DetailTab = "OVERVIEW" | "PURCHASES" | "SALES" | "MOVEMENTS";
 type ReorderPolicyStatus = "UNCONFIGURED" | "CONFIGURED" | "DISABLED";
+export type InventoryWorkspaceMode = "LIST" | "DETAIL" | "COUNT" | "LABELS";
 
 type Product = {
   id: string;
@@ -30,19 +34,6 @@ type Product = {
   latestLandedCostPaise?: number;
   reorderPoint?: number | null;
   restockTarget?: number | null;
-};
-
-type Movement = {
-  id: string;
-  movementType: string;
-  stockCondition: string;
-  quantityDelta: number;
-  referenceType: string;
-  referenceLabel: string;
-  actorName: string;
-  happenedAt: string;
-  reason: string | null;
-  note: string | null;
 };
 
 type Inventory = {
@@ -69,7 +60,28 @@ type Inventory = {
   weightedAverageCostPaise?: number;
   latestLandedCostPaise?: number;
   movementCount: number;
-  movements: Movement[];
+  fifoLots: Array<{
+    id: string;
+    sourceType: "OPENING_BALANCE" | "RECEIPT" | "ADJUSTMENT";
+    sourceLabel: string;
+    originalQuantity: number;
+    remainingQuantity: number;
+    unitCostPaise?: number;
+    suggestedWholesalePricePaise: number;
+    receivedAt: string;
+  }>;
+  movements: Array<{
+    id: string;
+    movementType: string;
+    stockCondition: string;
+    quantityDelta: number;
+    referenceType: string;
+    referenceLabel: string;
+    actorName: string;
+    happenedAt: string;
+    reason: string | null;
+    note: string | null;
+  }>;
   purchases: Array<{
     id: string;
     receiptNumber: string;
@@ -98,10 +110,6 @@ type Inventory = {
   }>;
 };
 
-type InventoryFilter = "ALL" | "LOW" | "OUT" | "MISSING_RACK";
-type DetailTab = "OVERVIEW" | "PURCHASES" | "SALES" | "MOVEMENTS";
-export type InventoryWorkspaceMode = "LIST" | "DETAIL" | "COUNT" | "LABELS";
-
 type Props = {
   displayName: string;
   role: Role;
@@ -115,7 +123,6 @@ const conditions: Array<[StockCondition, string]> = [
   ["OPEN_BOX", "Open box"],
   ["DAMAGED", "Damaged"],
 ];
-
 const reasons = [
   ["PHYSICAL_COUNT", "Routine physical count"],
   ["DAMAGE_OR_PACKAGING_FOUND", "Damage or packaging issue found"],
@@ -124,23 +131,12 @@ const reasons = [
   ["DATA_CORRECTION", "Earlier data-entry correction"],
   ["OTHER", "Other"],
 ] as const;
-
-const reorderReasons = [
-  ["INITIAL_SETUP", "Initial setup"],
-  ["SALES_VELOCITY", "Recent sales rate"],
-  ["SUPPLIER_LEAD_TIME", "Supplier lead time"],
-  ["SEASONALITY", "Seasonal demand"],
-  ["STORAGE_CAPACITY", "Available storage"],
-  ["DATA_CORRECTION", "Earlier data-entry correction"],
-  ["OTHER", "Other"],
-] as const;
-
 const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
   maximumFractionDigits: 2,
 });
-const happenedAt = new Intl.DateTimeFormat("en-IN", {
+const dateTime = new Intl.DateTimeFormat("en-IN", {
   dateStyle: "medium",
   timeStyle: "short",
   timeZone: "Asia/Kolkata",
@@ -160,48 +156,32 @@ function movementLabel(type: string) {
   const labels: Record<string, string> = {
     OPENING: "Opening balance",
     RECEIPT: "Supplier receipt",
-    SALE: "Retail sale",
+    SALE: "Sale",
     ADJUSTMENT: "Approved stock count",
     REVERSAL: "Reversal",
   };
   return labels[type] ?? type.replaceAll("_", " ").toLowerCase();
 }
 
-function reasonLabel(reason: string) {
-  return reasons.find(([value]) => value === reason)?.[1]
-    ?? reason.replaceAll("_", " ").toLowerCase();
-}
-
 function SalePriceTrend({ sales }: { sales: Inventory["sales"] }) {
   const points = [...sales].reverse().slice(-20);
-  if (!points.length) {
-    return <p className="inventory-empty-copy">No completed sales for this SKU yet.</p>;
-  }
+  if (!points.length) return <p className="inventory-v2__empty">No completed sales yet.</p>;
   const values = points.map((sale) => sale.unitPricePaise);
   const minimum = Math.min(...values);
   const maximum = Math.max(...values);
   const spread = Math.max(maximum - minimum, 1);
   const coordinates = points.map((sale, index) => {
     const x = points.length === 1 ? 150 : 8 + (index / (points.length - 1)) * 284;
-    const y = 88 - ((sale.unitPricePaise - minimum) / spread) * 72;
+    const y = 76 - ((sale.unitPricePaise - minimum) / spread) * 60;
     return `${x},${y}`;
   }).join(" ");
-
   return (
-    <figure className="sale-price-trend">
-      <div>
-        <span>Lowest {formatMoney(minimum)}</span>
-        <span>Highest {formatMoney(maximum)}</span>
-      </div>
-      <svg viewBox="0 0 300 96" role="img" aria-label="Selling price trend">
-        <path d="M8 88H292" />
+    <figure className="inventory-v2__trend">
+      <div><span>Lowest {formatMoney(minimum)}</span><span>Highest {formatMoney(maximum)}</span></div>
+      <svg viewBox="0 0 300 84" role="img" aria-label="Selling price trend">
+        <path d="M8 76H292" />
         <polyline points={coordinates} />
-        {coordinates.split(" ").map((point) => {
-          const [cx, cy] = point.split(",");
-          return <circle cx={cx} cy={cy} r="3" key={point} />;
-        })}
       </svg>
-      <figcaption>Final unit price across the latest {points.length} sale lines</figcaption>
     </figure>
   );
 }
@@ -213,18 +193,22 @@ export default function InventoryWorkspace({
   initialInventory,
   mode = "LIST",
 }: Props) {
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(1);
   const [products, setProducts] = useState(initialProducts);
+  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<InventoryFilter>("ALL");
-  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<DetailTab>("OVERVIEW");
   const [selectedId, setSelectedId] = useState(initialInventory?.product.id ?? "");
   const [inventory, setInventory] = useState<Inventory | null>(initialInventory ?? null);
-  const [condition, setCondition] = useState<StockCondition>("SELLABLE");
-  const [countedQuantity, setCountedQuantity] = useState("");
+  const [activeTab, setActiveTab] = useState<DetailTab>("OVERVIEW");
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(Boolean(initialInventory));
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
+  const [counted, setCounted] = useState<Record<StockCondition, string>>({
+    SELLABLE: "",
+    OPEN_BOX: "",
+    DAMAGED: "",
+  });
   const [reason, setReason] = useState("PHYSICAL_COUNT");
   const [note, setNote] = useState("");
+  const [showPolicy, setShowPolicy] = useState(false);
   const [policyEnabled, setPolicyEnabled] = useState(
     initialInventory?.product.reorderPolicyStatus === "CONFIGURED",
   );
@@ -234,96 +218,67 @@ export default function InventoryWorkspace({
   const [restockTarget, setRestockTarget] = useState(
     initialInventory?.product.restockTarget?.toString() ?? "",
   );
-  const [policyReason, setPolicyReason] = useState("INITIAL_SETUP");
   const [policyNote, setPolicyNote] = useState("");
-  const [policySaving, setPolicySaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [policySaving, setPolicySaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const recordedQuantity = inventory?.balances[condition] ?? 0;
-  const parsedCount = Number(countedQuantity);
-  const validCount = countedQuantity !== ""
-    && Number.isInteger(parsedCount)
-    && parsedCount >= 0;
-  const difference = validCount ? parsedCount - recordedQuantity : 0;
-  const canRequest = role !== "STORE_OPERATOR";
-  const parsedReorderPoint = Number(reorderPoint);
-  const parsedRestockTarget = Number(restockTarget);
-  const validConfiguredPolicy = policyEnabled
-    && reorderPoint !== ""
-    && restockTarget !== ""
-    && Number.isInteger(parsedReorderPoint)
-    && Number.isInteger(parsedRestockTarget)
-    && parsedReorderPoint >= 0
-    && parsedReorderPoint <= 100_000
-    && parsedRestockTarget > parsedReorderPoint
-    && parsedRestockTarget <= 100_000;
-  const policyChanged = inventory
-    ? policyEnabled
-      ? inventory.product.reorderPoint !== parsedReorderPoint
-        || inventory.product.restockTarget !== parsedRestockTarget
-      : inventory.product.reorderPolicyStatus === "CONFIGURED"
-    : false;
-  const canSavePolicy = role === "BUSINESS_OWNER"
-    && (policyEnabled ? validConfiguredPolicy : policyChanged)
-    && policyChanged
-    && policyNote.trim().length >= 3;
-
-  const selectedProduct = useMemo(
-    () => products.find((product) => product.id === selectedId),
-    [products, selectedId],
-  );
-
+  const canCount = role !== "STORE_OPERATOR";
   const filteredProducts = useMemo(() => {
     const term = query.trim().toLowerCase();
     return products.filter((product) => {
-      const matchesSearch = !term || [
-        product.name,
-        product.variantName,
-        product.sku,
-        product.barcode,
-        product.rackLocation,
-        product.category,
-      ].some((value) => value?.toLowerCase().includes(term));
-      const matchesFilter =
-        filter === "ALL"
+      const searchable = [product.name, product.variantName, product.sku, product.barcode,
+        product.rackLocation, product.category];
+      const matchesSearch = !term || searchable.some((value) => value?.toLowerCase().includes(term));
+      const matchesFilter = filter === "ALL"
         || (filter === "OUT" && product.stock === 0)
-        || (
-          filter === "LOW"
-          && product.reorderPoint !== null
-          && product.reorderPoint !== undefined
-          && product.stock <= product.reorderPoint
-        )
+        || (filter === "LOW" && product.reorderPoint != null && product.stock <= product.reorderPoint)
         || (filter === "MISSING_RACK" && !product.rackLocation);
       return matchesSearch && matchesFilter;
     });
   }, [filter, products, query]);
-  const pageSize = 15;
-  const pageCount = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
-  const currentPage = Math.min(page, pageCount);
-  const visibleProducts = filteredProducts.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
-  const selectedShownCount = visibleProducts.filter(
-    (product) => selectedLabels.includes(product.id),
-  ).length;
-
-  const inventorySummary = useMemo(() => ({
+  const summary = useMemo(() => ({
     units: products.reduce((sum, product) => sum + product.stock, 0),
-    valuePaise: products.reduce(
-      (sum, product) => sum + (product.inventoryValuePaise ?? 0),
-      0,
-    ),
-    outOfStock: products.filter((product) => product.stock === 0).length,
-    lowStock: products.filter(
-      (product) => product.reorderPoint !== null
-        && product.reorderPoint !== undefined
-        && product.stock <= product.reorderPoint,
-    ).length,
+    valuePaise: products.reduce((sum, product) => sum + (product.inventoryValuePaise ?? 0), 0),
+    low: products.filter((product) => product.reorderPoint != null && product.stock <= product.reorderPoint).length,
+    out: products.filter((product) => product.stock === 0).length,
   }), [products]);
+
+  const countChanges = inventory
+    ? conditions.flatMap(([condition]) => {
+        const value = counted[condition];
+        const quantity = Number(value);
+        if (value === "" || !Number.isInteger(quantity) || quantity < 0) return [];
+        const difference = quantity - inventory.balances[condition];
+        return difference === 0 ? [] : [{ condition, quantity, difference }];
+      })
+    : [];
+
+  async function selectProduct(product: Product) {
+    setSelectedId(product.id);
+    setMobileDetailOpen(true);
+    setInventory(null);
+    setLoading(true);
+    setError("");
+    setMessage("");
+    setActiveTab("OVERVIEW");
+    setCounted({ SELLABLE: "", OPEN_BOX: "", DAMAGED: "" });
+    try {
+      const response = await fetch(`/api/v1/inventory/${product.id}/history`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error?.message ?? "Product details could not be loaded.");
+      setInventory(body.inventory);
+      setPolicyEnabled(body.inventory.product.reorderPolicyStatus === "CONFIGURED");
+      setReorderPoint(body.inventory.product.reorderPoint?.toString() ?? "");
+      setRestockTarget(body.inventory.product.restockTarget?.toString() ?? "");
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "Product details could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   function toggleLabel(id: string) {
     setSelectedLabels((current) => current.includes(id)
@@ -349,841 +304,487 @@ export default function InventoryWorkspace({
     link.download = `ItsMyToy-labels-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
-    setMessage(`${selected.length} SKU${selected.length === 1 ? "" : "s"} exported for labels.`);
-  }
-
-  async function selectProduct(product: Product) {
-    setSelectedId(product.id);
-    setInventory(null);
-    setLoading(true);
-    setError("");
-    setMessage("");
-    setCountedQuantity("");
-    setNote("");
-    setPolicyEnabled(false);
-    setReorderPoint("");
-    setRestockTarget("");
-    setPolicyReason("INITIAL_SETUP");
-    setPolicyNote("");
-    setActiveTab("OVERVIEW");
-    try {
-      const response = await fetch(`/api/v1/inventory/${product.id}/history`);
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "Inventory history could not be loaded.");
-      }
-      setInventory(body.inventory);
-      setPolicyEnabled(body.inventory.product.reorderPolicyStatus === "CONFIGURED");
-      setReorderPoint(body.inventory.product.reorderPoint?.toString() ?? "");
-      setRestockTarget(body.inventory.product.restockTarget?.toString() ?? "");
-    } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Inventory history could not be loaded.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function submitReorderPolicy(event: FormEvent) {
-    event.preventDefault();
-    if (!inventory) return;
-    if (policyEnabled && !validConfiguredPolicy) {
-      setError(
-        "Enter whole numbers and keep the restock target above the reorder point.",
-      );
-      return;
-    }
-    if (!policyChanged) {
-      setError("Change the reorder settings before saving.");
-      return;
-    }
-    if (policyNote.trim().length < 3) {
-      setError("Add a short note explaining this replenishment decision.");
-      return;
-    }
-
-    setPolicySaving(true);
-    setError("");
-    setMessage("");
-    try {
-      const response = await fetch(
-        `/api/v1/inventory/${inventory.product.id}/reorder-policy`,
-        {
-          method: "PATCH",
-          headers: {
-            "content-type": "application/json",
-            "idempotency-key": crypto.randomUUID(),
-          },
-          body: JSON.stringify({
-            reorderPoint: policyEnabled ? parsedReorderPoint : null,
-            restockTarget: policyEnabled ? parsedRestockTarget : null,
-            reason: policyReason,
-            note: policyNote.trim(),
-          }),
-        },
-      );
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "The reorder policy could not be saved.");
-      }
-      setInventory((current) => current
-        ? {
-            ...current,
-            product: {
-              ...current.product,
-              reorderPolicyStatus: body.change.policy.status,
-              reorderPoint: body.change.policy.reorderPoint,
-              restockTarget: body.change.policy.restockTarget,
-            },
-          }
-        : current);
-      setProducts((current) => current.map((product) => product.id === inventory.product.id
-        ? {
-            ...product,
-            reorderPoint: body.change.policy.reorderPoint,
-            restockTarget: body.change.policy.restockTarget,
-          }
-        : product));
-      setPolicyNote("");
-      setMessage(
-        body.change.policy.status === "CONFIGURED"
-          ? `Reorder policy saved: alert at ${body.change.policy.reorderPoint}, `
-            + `restock to ${body.change.policy.restockTarget}. Stock did not change.`
-          : "Reorder policy disabled. Stock did not change.",
-      );
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "The reorder policy could not be saved.",
-      );
-    } finally {
-      setPolicySaving(false);
-    }
+    setMessage(`${selected.length} SKU${selected.length === 1 ? "" : "s"} exported.`);
   }
 
   async function submitCount(event: FormEvent) {
     event.preventDefault();
-    if (!inventory || !validCount) {
-      setError("Enter the whole quantity physically present.");
-      return;
-    }
-    if (difference === 0) {
-      setError("The physical count already matches the recorded quantity.");
+    if (!inventory || !countChanges.length) {
+      setError("Enter at least one physical quantity that differs from the recorded stock.");
       return;
     }
     if (note.trim().length < 3) {
-      setError("Add a short note explaining when and how the stock was counted.");
+      setError("Add a short note about where and when you counted this stock.");
       return;
     }
-
     setSaving(true);
     setError("");
     setMessage("");
     try {
-      const response = await fetch("/api/v1/stock-adjustments", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": crypto.randomUUID(),
-        },
-        body: JSON.stringify({
-          variantId: inventory.product.id,
-          stockCondition: condition,
-          countedQuantity: parsedCount,
-          reason,
-          note: note.trim(),
-        }),
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        throw new Error(body.error?.message ?? "The count could not be submitted.");
+      for (const change of countChanges) {
+        const response = await fetch("/api/v1/stock-adjustments", {
+          method: "POST",
+          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+          body: JSON.stringify({
+            variantId: inventory.product.id,
+            stockCondition: change.condition,
+            countedQuantity: change.quantity,
+            reason,
+            note: note.trim(),
+          }),
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error?.message ?? "The count could not be submitted.");
       }
-      setMessage(
-        `Count submitted: ${conditionLabel(condition)} ${recordedQuantity} → ${parsedCount}. `
-        + "Stock has not changed; a business owner must approve the difference.",
-      );
-      setCountedQuantity("");
+      setMessage(`${countChanges.length} stock difference${countChanges.length === 1 ? "" : "s"} sent for owner approval. Recorded stock has not changed yet.`);
+      setCounted({ SELLABLE: "", OPEN_BOX: "", DAMAGED: "" });
       setNote("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The count could not be submitted.");
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "The count could not be submitted.");
     } finally {
       setSaving(false);
     }
   }
 
+  async function saveReorderPolicy(enabled: boolean) {
+    if (!inventory) return;
+    const point = Number(reorderPoint);
+    const target = Number(restockTarget);
+    if (enabled && (!Number.isInteger(point) || point < 0 || !Number.isInteger(target) || target <= point)) {
+      setError("Enter whole quantities, with the restock goal higher than the alert level.");
+      return;
+    }
+    const auditNote = policyNote.trim()
+      || (enabled ? "Low-stock alert set by the business owner." : "Low-stock alert turned off by the business owner.");
+    setPolicySaving(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/v1/inventory/${inventory.product.id}/reorder-policy`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({
+          reorderPoint: enabled ? point : null,
+          restockTarget: enabled ? target : null,
+          reason: "INITIAL_SETUP",
+          note: auditNote,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error?.message ?? "The low-stock rule could not be saved.");
+      setInventory((current) => current ? {
+        ...current,
+        product: {
+          ...current.product,
+          reorderPolicyStatus: body.change.policy.status,
+          reorderPoint: body.change.policy.reorderPoint,
+          restockTarget: body.change.policy.restockTarget,
+        },
+      } : current);
+      setProducts((current) => current.map((product) => product.id === inventory.product.id ? {
+        ...product,
+        reorderPoint: body.change.policy.reorderPoint,
+        restockTarget: body.change.policy.restockTarget,
+      } : product));
+      setPolicyEnabled(enabled);
+      setShowPolicy(false);
+      setPolicyNote("");
+      setMessage(body.change.policy.status === "CONFIGURED" ? "Low-stock alert updated." : "Low-stock alert turned off.");
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "The low-stock rule could not be saved.");
+    } finally {
+      setPolicySaving(false);
+    }
+  }
+
+  async function submitReorderPolicy(event: FormEvent) {
+    event.preventDefault();
+    await saveReorderPolicy(true);
+  }
+
+  function changePolicyQuantity(field: "POINT" | "TARGET", amount: number) {
+    if (field === "POINT") {
+      const current = Number.isInteger(Number(reorderPoint)) ? Number(reorderPoint) : 0;
+      const nextPoint = Math.max(0, current + amount);
+      setReorderPoint(String(nextPoint));
+      if (!Number.isInteger(Number(restockTarget)) || Number(restockTarget) <= nextPoint) {
+        setRestockTarget(String(nextPoint + 1));
+      }
+      return;
+    }
+    const minimum = Math.max(1, (Number.isInteger(Number(reorderPoint)) ? Number(reorderPoint) : 0) + 1);
+    const current = Number.isInteger(Number(restockTarget)) ? Number(restockTarget) : minimum;
+    setRestockTarget(String(Math.max(minimum, current + amount)));
+  }
+
+  function ProductList({ labels = false }: { labels?: boolean }) {
+    return (
+      <section className="inventory-v2__catalog" aria-label="Product catalogue">
+        <div className="inventory-v2__find">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search product, SKU, barcode or rack"
+            aria-label="Search inventory"
+          />
+          <CustomSelect
+            value={filter}
+            ariaLabel="Filter products"
+            options={[
+              { value: "ALL", label: "All stock" },
+              { value: "LOW", label: "Low stock" },
+              { value: "OUT", label: "Out of stock" },
+              { value: "MISSING_RACK", label: "Rack missing" },
+            ]}
+            onChange={(value) => setFilter(value as InventoryFilter)}
+          />
+        </div>
+        <div className="inventory-v2__list-heading">
+          <strong>{labels ? "Choose products" : "Products"}</strong>
+          <span>{filteredProducts.length} shown</span>
+        </div>
+        <div className="inventory-v2__product-list">
+          {filteredProducts.map((product) => {
+            const selected = labels ? selectedLabels.includes(product.id) : selectedId === product.id;
+            return (
+              <button
+                type="button"
+                className={`inventory-v2__product${selected ? " is-selected" : ""}`}
+                onClick={() => labels ? toggleLabel(product.id) : selectProduct(product)}
+                key={product.id}
+              >
+                {labels && <span className="inventory-v2__check" aria-hidden="true">{selected ? "✓" : ""}</span>}
+                <span className="inventory-v2__product-copy">
+                  <strong>{product.name}{product.variantName ? ` · ${product.variantName}` : ""}</strong>
+                  <small>{product.sku} · {product.rackLocation ?? "Rack not set"}</small>
+                </span>
+                <span className="inventory-v2__product-price">
+                  <strong>{formatMoney(product.standardPricePaise)}</strong><small>Retail</small>
+                </span>
+                <span className={`inventory-v2__stock ${product.stock === 0 ? "is-out" : ""}`}>
+                  {product.stock} in stock
+                </span>
+                {!labels && <span className="inventory-v2__open" aria-hidden="true">›</span>}
+              </button>
+            );
+          })}
+          {!filteredProducts.length && <p className="inventory-v2__empty">No matching products.</p>}
+        </div>
+      </section>
+    );
+  }
+
+  function ProductDetail() {
+    if (loading) return <section className="inventory-v2__detail inventory-v2__loading">Loading product record…</section>;
+    if (!inventory) {
+      return (
+        <section className="inventory-v2__detail inventory-v2__empty-state">
+          <span aria-hidden="true">↖</span>
+          <h2>{mode === "COUNT" ? "Choose a product to count" : "Choose a product"}</h2>
+          <p>{mode === "COUNT" ? "Its recorded quantities will appear here for a physical check." : "Stock, pricing, purchase layers, sales and movements will appear here."}</p>
+        </section>
+      );
+    }
+    if (mode === "COUNT") return CountPanel();
+    return (
+      <section className="inventory-v2__detail">
+        <header className="inventory-v2__record-header">
+          <button type="button" className="inventory-v2__mobile-back" onClick={() => setMobileDetailOpen(false)}>← Products</button>
+          <div>
+            <p>{inventory.product.sku}</p>
+            <h1>{inventory.product.name}{inventory.product.variantName ? ` · ${inventory.product.variantName}` : ""}</h1>
+            <span>{inventory.product.rackLocation ?? "Rack not set"} · Barcode {inventory.product.barcode}</span>
+          </div>
+          {mode === "DETAIL" && <Link className="secondary-button" href="/inventory">All products</Link>}
+        </header>
+        <nav className="inventory-v2__tabs" aria-label="Product record sections">
+          {(["OVERVIEW", "PURCHASES", "SALES", "MOVEMENTS"] as DetailTab[]).map((tab) => (
+            <button type="button" className={activeTab === tab ? "is-active" : ""} onClick={() => setActiveTab(tab)} key={tab}>
+              {tab === "OVERVIEW" ? "Overview" : tab === "PURCHASES" ? "Purchase & FIFO" : tab === "SALES" ? "Sold history" : "Movements"}
+            </button>
+          ))}
+        </nav>
+        <div className="inventory-v2__record-body">
+          {activeTab === "OVERVIEW" && OverviewPanel()}
+          {activeTab === "PURCHASES" && PurchasePanel()}
+          {activeTab === "SALES" && SalesPanel()}
+          {activeTab === "MOVEMENTS" && MovementPanel()}
+        </div>
+      </section>
+    );
+  }
+
+  function OverviewPanel() {
+    if (!inventory) return null;
+    const p = inventory.product;
+    return (
+      <div className="inventory-v2__overview">
+        <section className="inventory-v2__metric-grid">
+          <article className="primary"><small>Sellable stock</small><strong>{inventory.balances.SELLABLE}</strong></article>
+          <article><small>Open box</small><strong>{inventory.balances.OPEN_BOX}</strong></article>
+          <article><small>Damaged</small><strong>{inventory.balances.DAMAGED}</strong></article>
+          <article><small>MRP</small><strong>{formatMoney(p.mrpPaise)}</strong></article>
+          <article><small>Retail price</small><strong>{formatMoney(p.standardPricePaise)}</strong></article>
+          <article><small>Current wholesale guide</small><strong>{formatMoney(p.wholesalePricePaise)}</strong></article>
+        </section>
+        {role === "BUSINESS_OWNER" && (
+          <section className="inventory-v2__cost-strip">
+            <div><small>Stock cost value</small><strong>{formatMoney(inventory.inventoryValuePaise ?? 0)}</strong></div>
+            <div><small>Weighted average</small><strong>{formatMoney(inventory.weightedAverageCostPaise ?? 0)}</strong></div>
+            <div><small>Latest purchase cost</small><strong>{formatMoney(inventory.latestLandedCostPaise ?? 0)}</strong></div>
+          </section>
+        )}
+        <section className="inventory-v2__health">
+          <div>
+            <small>Stock records</small>
+            <strong className={inventory.reconciled ? "positive" : "negative"}>{inventory.reconciled ? "Matched" : "Needs review"}</strong>
+            <span>{inventory.reconciled ? "Recorded balances match the movement ledger." : "A balance differs from its movement history."}</span>
+          </div>
+          <div>
+            <small>Low-stock alert</small>
+            <strong>{p.reorderPolicyStatus === "CONFIGURED" ? `Alert at ${p.reorderPoint} units` : "Not set"}</strong>
+            <span>{p.reorderPolicyStatus === "CONFIGURED" ? `Restock goal: ${p.restockTarget} units` : "Set a reminder when you know the right stock levels."}</span>
+          </div>
+          {role === "BUSINESS_OWNER" && <button type="button" className="secondary-button" onClick={() => setShowPolicy(true)}>Change alert</button>}
+        </section>
+      </div>
+    );
+  }
+
+  function PurchasePanel() {
+    if (!inventory) return null;
+    return (
+      <div className="inventory-v2__history-stack">
+        <section className="inventory-v2__fifo">
+          <div className="inventory-v2__section-heading">
+            <div><h2>Stock available by purchase batch</h2><p>Oldest stock sells first. The wholesale guide is purchase cost + 10%.</p></div>
+            <span>{inventory.fifoLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0)} units</span>
+          </div>
+          <div className="inventory-v2__fifo-list">
+            {inventory.fifoLots.map((lot, index) => (
+              <article key={lot.id} className={index === 0 ? "is-next" : ""}>
+                <span className="inventory-v2__lot-order">{index === 0 ? "SELL NEXT" : `#${index + 1}`}</span>
+                <div><strong>{lot.remainingQuantity} of {lot.originalQuantity} left</strong><small>{lot.sourceLabel} · {dateTime.format(new Date(lot.receivedAt))}</small></div>
+                {lot.unitCostPaise !== undefined && <div><small>Purchase cost</small><strong>{formatMoney(lot.unitCostPaise)}</strong></div>}
+                <div><small>Wholesale guide</small><strong>{formatMoney(lot.suggestedWholesalePricePaise)}</strong></div>
+              </article>
+            ))}
+            {!inventory.fifoLots.length && <p className="inventory-v2__empty">No sellable FIFO stock layers remain.</p>}
+          </div>
+        </section>
+        <section>
+          <div className="inventory-v2__section-heading"><div><h2>Completed receipts</h2><p>Every time this SKU was received.</p></div><span>{inventory.purchases.length}</span></div>
+          <div className="inventory-v2__history-list">
+            {inventory.purchases.map((purchase) => (
+              <article key={purchase.id}>
+                <div><strong>{purchase.supplierName}</strong><small>{purchase.receiptNumber}{purchase.supplierInvoiceReference ? ` · Bill ${purchase.supplierInvoiceReference}` : ""}</small></div>
+                <div><strong>{purchase.sellableQuantity} sellable</strong><small>{purchase.openBoxQuantity} open box · {purchase.damagedQuantity} damaged</small></div>
+                {purchase.invoiceUnitCostPaise !== undefined && <div><small>Purchase cost</small><strong>{formatMoney(purchase.invoiceUnitCostPaise)}</strong></div>}
+                <time>{dateTime.format(new Date(purchase.happenedAt))}</time>
+              </article>
+            ))}
+            {!inventory.purchases.length && <p className="inventory-v2__empty">No completed receipts yet.</p>}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  function SalesPanel() {
+    if (!inventory) return null;
+    return (
+      <section>
+        <div className="inventory-v2__section-heading"><div><h2>Sold history</h2><p>Final price, channel and result for every completed sale.</p></div><span>{inventory.sales.reduce((sum, sale) => sum + sale.quantity, 0)} units</span></div>
+        <SalePriceTrend sales={inventory.sales} />
+        <div className="inventory-v2__history-list">
+          {inventory.sales.map((sale) => (
+            <article key={sale.id}>
+              <div><strong>{sale.saleNumber}</strong><small>{sale.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} · {sale.customerName}</small></div>
+              <div><strong>{sale.quantity} × {formatMoney(sale.unitPricePaise)}</strong><small>Final unit price</small></div>
+              {sale.grossProductProfitPaise !== undefined && <div><small>Gross product result</small><strong className={sale.grossProductProfitPaise < 0 ? "negative" : "positive"}>{formatMoney(sale.grossProductProfitPaise)}</strong></div>}
+              <time>{dateTime.format(new Date(sale.happenedAt))}</time>
+            </article>
+          ))}
+          {!inventory.sales.length && <p className="inventory-v2__empty">No completed sales yet.</p>}
+        </div>
+      </section>
+    );
+  }
+
+  function MovementPanel() {
+    if (!inventory) return null;
+    return (
+      <section>
+        <div className="inventory-v2__section-heading"><div><h2>Stock timeline</h2><p>Every receipt, sale and approved correction.</p></div><span>{inventory.movementCount} records</span></div>
+        <div className="inventory-v2__movement-list">
+          {inventory.movements.map((movement) => (
+            <article key={movement.id}>
+              <span className={movement.quantityDelta >= 0 ? "positive" : "negative"}>{movement.quantityDelta > 0 ? "+" : ""}{movement.quantityDelta}</span>
+              <div><strong>{movementLabel(movement.movementType)}</strong><small>{movement.referenceLabel} · {conditionLabel(movement.stockCondition)}</small>{movement.note && <small>{movement.note}</small>}</div>
+              <time>{dateTime.format(new Date(movement.happenedAt))}<small>{movement.actorName}</small></time>
+            </article>
+          ))}
+          {!inventory.movements.length && <p className="inventory-v2__empty">No stock movements yet.</p>}
+        </div>
+      </section>
+    );
+  }
+
+  function CountPanel() {
+    if (!inventory) return null;
+    return (
+      <section className="inventory-v2__detail inventory-v2__count">
+        <header className="inventory-v2__record-header">
+          <button type="button" className="inventory-v2__mobile-back" onClick={() => setMobileDetailOpen(false)}>← Products</button>
+          <div><p>{inventory.product.sku}</p><h1>{inventory.product.name}</h1><span>{inventory.product.rackLocation ?? "Rack not set"}</span></div>
+        </header>
+        {canCount ? (
+          <form className="inventory-v2__count-form" onSubmit={submitCount}>
+            <div className="inventory-v2__count-intro"><div><h2>Enter what is physically present</h2><p>Count all conditions together. Only differences are sent for approval.</p></div><strong>{countChanges.length} differences</strong></div>
+            <div className="inventory-v2__condition-grid">
+              {conditions.map(([condition, label]) => {
+                const value = counted[condition];
+                const numeric = Number(value);
+                const valid = value !== "" && Number.isInteger(numeric) && numeric >= 0;
+                const delta = valid ? numeric - inventory.balances[condition] : 0;
+                return (
+                  <label key={condition}>
+                    <span>{label}</span>
+                    <small>Recorded: {inventory.balances[condition]}</small>
+                    <input type="number" min="0" max="100000" step="1" value={value} onChange={(event) => setCounted((current) => ({ ...current, [condition]: event.target.value }))} placeholder="Physical count" />
+                    <strong className={delta < 0 ? "negative" : delta > 0 ? "positive" : ""}>Difference: {valid ? `${delta > 0 ? "+" : ""}${delta}` : "—"}</strong>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="inventory-v2__count-notes">
+              <label>Reason<CustomSelect value={reason} ariaLabel="Stock count reason" options={reasons.map(([value, label]) => ({ value, label }))} onChange={setReason} /></label>
+              <label>Count note<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="Example: Counted rack C2 at closing" /></label>
+            </div>
+            <div className="inventory-v2__sticky-action"><span><strong>{countChanges.length}</strong> differences ready</span><button type="submit" disabled={saving || !countChanges.length || note.trim().length < 3}>{saving ? "Submitting…" : "Send for approval"}</button></div>
+          </form>
+        ) : <p className="inventory-v2__empty">A trusted operator or owner must submit physical counts.</p>}
+      </section>
+    );
+  }
+
+  const isLabels = mode === "LABELS";
+  const title = mode === "COUNT" ? "Stock count" : mode === "LABELS" ? "Label export" : mode === "DETAIL" ? "Product record" : "Inventory";
   return (
     <AppShell displayName={displayName} role={role}>
-      <section className={`sell-page inventory-page inventory-mode-${mode.toLowerCase()}`} aria-labelledby="inventory-heading">
-        <PageHeader
-          eyebrow={mode === "LABELS"
-            ? "Label export"
-            : mode === "COUNT"
-              ? "Physical verification"
-              : mode === "DETAIL"
-                ? "Product record"
-                : "Stock in hand"}
-          headingId="inventory-heading"
-          title={mode === "LABELS"
-            ? "Prepare label CSV"
-            : mode === "COUNT"
-              ? "Stock count"
-              : mode === "DETAIL"
-                ? initialInventory?.product.name ?? "Product"
-                : "Products"}
-          description={mode === "LABELS"
-            ? "Select SKUs and download the product details for your existing label software."
-            : mode === "COUNT"
-              ? "Choose a SKU, enter what is physically present and send only the difference for approval."
-              : mode === "DETAIL"
-                ? "Review stock, prices, buying, selling and every movement for this SKU."
-                : "Search every SKU and see current stock, rack, pricing and stock value."}
-          actions={mode === "DETAIL"
-            ? <Link className="secondary-button" href="/inventory">Back to products</Link>
-            : mode === "COUNT" && role === "BUSINESS_OWNER"
-              ? <Link className="secondary-button" href="/operations/approvals/stock">Review submitted counts</Link>
-              : undefined}
-        />
+      <section className={`inventory-v2 inventory-v2--${mode.toLowerCase()}${mobileDetailOpen ? " is-mobile-detail" : ""}`}>
+        <header className="inventory-v2__module-bar">
+          <div><h1>{title}</h1><p>{mode === "COUNT" ? "Compare physical stock with the system." : mode === "LABELS" ? "Choose SKUs and download one simple CSV." : "Current stock, value, buying and selling history."}</p></div>
+          <div className="inventory-v2__quick-actions">
+            {role !== "STORE_OPERATOR" && <Link href="/inventory/receive">Receive stock</Link>}
+            {mode !== "COUNT" && role !== "STORE_OPERATOR" && <Link href="/inventory/counts">Count stock</Link>}
+            {mode !== "LABELS" && <Link href="/inventory/labels">Export labels</Link>}
+          </div>
+        </header>
+        {(error || message) && <div className={`inventory-v2__notice ${error ? "error" : "success"}`} role={error ? "alert" : "status"}>{error || message}<button type="button" aria-label="Dismiss message" onClick={() => { setError(""); setMessage(""); }}>×</button></div>}
 
-        {error && <p className="alert error" role="alert">{error}</p>}
-        {message && <p className="alert success" role="status">{message}</p>}
+        {mode === "LIST" && (
+          <section className="inventory-v2__summary" aria-label="Inventory summary">
+            <article><small>Active SKUs</small><strong>{products.length}</strong></article>
+            <article><small>Sellable units</small><strong>{summary.units}</strong></article>
+            {role === "BUSINESS_OWNER" && <article><small>Stock cost value</small><strong>{formatMoney(summary.valuePaise)}</strong></article>}
+            <article className={summary.low ? "watch" : ""}><small>Low stock</small><strong>{summary.low}</strong></article>
+            <article className={summary.out ? "risk" : ""}><small>Out of stock</small><strong>{summary.out}</strong></article>
+          </section>
+        )}
 
-        {mode === "LIST" && <section className="inventory-kpis" aria-label="Inventory summary">
-          <article>
-            <small>Active SKUs</small>
-            <strong>{products.length}</strong>
-          </article>
-          <article>
-            <small>Units in stock</small>
-            <strong>{inventorySummary.units}</strong>
-          </article>
-          {role === "BUSINESS_OWNER" && (
-            <article>
-              <small>Stock cost value</small>
-              <strong>{formatMoney(inventorySummary.valuePaise)}</strong>
-            </article>
-          )}
-          <article className={inventorySummary.lowStock ? "watch" : ""}>
-            <small>Low stock</small>
-            <strong>{inventorySummary.lowStock}</strong>
-          </article>
-          <article className={inventorySummary.outOfStock ? "risk" : ""}>
-            <small>Out of stock</small>
-            <strong>{inventorySummary.outOfStock}</strong>
-          </article>
-        </section>}
+        {isLabels ? (
+          <div className="inventory-v2__workspace inventory-v2__workspace--labels">
+            {ProductList({ labels: true })}
+            <aside className="inventory-v2__label-summary" data-selection={`${selectedLabels.length} selected`}>
+              <div><small>Selected</small><strong>{selectedLabels.length}</strong><p>CSV includes SKU, barcode, product, variant, MRP, selling price and rack.</p></div>
+              <button type="button" className="secondary-button" onClick={() => setSelectedLabels(filteredProducts.map((product) => product.id))} disabled={!filteredProducts.length}>Select shown</button>
+              <button type="button" className="text-button" onClick={() => setSelectedLabels([])} disabled={!selectedLabels.length}>Clear selection</button>
+              <button type="button" className="complete-button" onClick={exportLabels} disabled={!selectedLabels.length}>Download label CSV</button>
+            </aside>
+          </div>
+        ) : mode === "DETAIL" ? (
+          <div className="inventory-v2__workspace inventory-v2__workspace--record">{ProductDetail()}</div>
+        ) : (
+          <div className="inventory-v2__workspace">
+            {ProductList({})}
+            {ProductDetail()}
+          </div>
+        )}
 
-        {mode !== "DETAIL" && <section className="inventory-toolbar" aria-label="Find and filter inventory">
-          <label className="inventory-search-field">
-            <span>Find a SKU</span>
-            <input
-              id="inventory-search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-              }}
-              placeholder="Product, SKU, barcode or rack"
-            />
-          </label>
-          <label>
-            <span>Show</span>
-            <select
-              value={filter}
-              onChange={(event) => {
-                setFilter(event.target.value as InventoryFilter);
-                setPage(1);
-              }}
-            >
-              <option value="ALL">All stock</option>
-              <option value="LOW">Low stock</option>
-              <option value="OUT">Out of stock</option>
-              <option value="MISSING_RACK">Rack missing</option>
-            </select>
-          </label>
-          {mode === "LABELS" && <div className="inventory-label-actions" aria-label="Label CSV selection">
-            <span aria-live="polite">
-              <strong>{selectedLabels.length}</strong>
-              <small>SKUs selected for labels</small>
-            </span>
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() => setSelectedLabels((current) => [
-                ...new Set([
-                  ...current,
-                  ...visibleProducts.map((product) => product.id),
-                ]),
-              ])}
-              disabled={
-                !filteredProducts.length
-                || selectedShownCount === visibleProducts.length
-              }
-            >
-              Add shown
-            </button>
-            <button
-              className="text-button"
-              type="button"
-              onClick={() => setSelectedLabels([])}
-              disabled={!selectedLabels.length}
-            >
-              Clear
-            </button>
-            <button
-              className="button"
-              type="button"
-              onClick={exportLabels}
-              disabled={!selectedLabels.length}
-            >
-              Download CSV
-            </button>
-          </div>}
-        </section>}
-
-        <div className={`inventory-layout inventory-command-center ${mode === "DETAIL" ? "detail-only" : ""}`}>
-          {mode !== "DETAIL" && <section className="inventory-products" aria-labelledby="inventory-products-heading">
-            <div className="section-title">
-              <h2 id="inventory-products-heading">Stock list</h2>
-              <span>
-                {filteredProducts.length
-                  ? `${(currentPage - 1) * pageSize + 1}–${Math.min(currentPage * pageSize, filteredProducts.length)} of ${filteredProducts.length}`
-                  : "0 shown"}
-              </span>
+        <Modal
+          open={showPolicy}
+          title="Set low-stock alert"
+          description={inventory ? `Choose when ${inventory.product.name} should be added to your reorder list.` : undefined}
+          onClose={() => setShowPolicy(false)}
+          panelClassName="inventory-v2__policy-modal"
+          footer={
+            <div className="inventory-v2__policy-actions">
+              {policyEnabled && (
+                <button type="button" className="inventory-v2__disable-policy" onClick={() => saveReorderPolicy(false)} disabled={policySaving}>
+                  Turn off alert
+                </button>
+              )}
+              <div>
+                <button type="button" className="secondary-button" onClick={() => setShowPolicy(false)}>Cancel</button>
+                <button type="submit" form="inventory-reorder-form" className="complete-button" disabled={policySaving}>{policySaving ? "Saving…" : "Save low-stock alert"}</button>
+              </div>
             </div>
-            {filteredProducts.length ? (
-              <div className="inventory-table-wrap">
-                <table className="inventory-table">
-                  <thead>
-                    <tr>
-                      {mode === "LABELS" && <th aria-label="Select for labels" />}
-                      <th>Product</th>
-                      <th>Rack</th>
-                      <th>In stock</th>
-                      <th>Retail price</th>
-                      {role === "BUSINESS_OWNER" && <th>Avg. cost</th>}
-                      {role === "BUSINESS_OWNER" && <th>Stock value</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleProducts.map((product) => {
-                      const low = product.reorderPoint !== null
-                        && product.reorderPoint !== undefined
-                        && product.stock <= product.reorderPoint;
-                      return (
-                        <tr
-                          className={selectedId === product.id ? "selected" : ""}
-                          key={product.id}
-                        >
-                          {mode === "LABELS" && <td data-label="Label">
-                            <input
-                              type="checkbox"
-                              checked={selectedLabels.includes(product.id)}
-                              onChange={() => toggleLabel(product.id)}
-                              aria-label={`Select ${product.name} for label export`}
-                            />
-                          </td>}
-                          <td data-label="Product">
-                            {mode === "COUNT" ? <button
-                                type="button"
-                                className="inventory-product-link"
-                                onClick={() => selectProduct(product)}
-                              >
-                                <strong>{product.name}</strong>
-                                <small>
-                                  {product.variantName ? `${product.variantName} · ` : ""}
-                                  {product.sku}
-                                </small>
-                              </button> : <Link
-                              className="inventory-product-link"
-                              href={`/inventory/${product.id}`}
-                            >
-                              <strong>{product.name}</strong>
-                              <small>
-                                {product.variantName ? `${product.variantName} · ` : ""}
-                                {product.sku}
-                              </small>
-                            </Link>}
-                          </td>
-                          <td data-label="Rack">{product.rackLocation ?? "Not set"}</td>
-                          <td data-label="In stock">
-                            <strong>{product.stock}</strong>
-                            <small className={product.stock === 0 ? "stock-state out" : low ? "stock-state low" : "stock-state"}>
-                              {product.stock === 0 ? "Out" : low ? "Low" : "Available"}
-                            </small>
-                          </td>
-                          <td data-label="Retail price">{formatMoney(product.standardPricePaise)}</td>
-                          {role === "BUSINESS_OWNER" && (
-                            <td data-label="Avg. cost">
-                              {formatMoney(product.weightedAverageCostPaise ?? 0)}
-                            </td>
-                          )}
-                          {role === "BUSINESS_OWNER" && (
-                            <td data-label="Stock value">
-                              {formatMoney(product.inventoryValuePaise ?? 0)}
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="inventory-empty-copy">No SKUs match this search or filter.</p>
-            )}
-            {pageCount > 1 && (
-              <nav className="pagination" aria-label="Inventory pages">
-                <button type="button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button>
-                <span>Page {currentPage} of {pageCount}</span>
-                <button type="button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button>
-              </nav>
-            )}
-          </section>}
-
-          {(mode === "DETAIL" || mode === "COUNT") && <section className="inventory-detail" aria-live="polite">
-            {!selectedProduct && !loading && (
-              <div className="inventory-empty">
-                <span>↗</span>
-                <h2>Select a SKU</h2>
-                <p>Its stock, purchases, sales and movement history will appear here.</p>
-              </div>
-            )}
-            {loading && selectedProduct && (
-              <div className="inventory-empty"><p>Loading SKU details…</p></div>
-            )}
+          }
+        >
+          <form id="inventory-reorder-form" className="inventory-v2__policy-form" onSubmit={submitReorderPolicy}>
             {inventory && (
-              <>
-                <div className="inventory-detail-heading">
-                  <div>
-                    <p className="eyebrow">{inventory.product.sku}</p>
-                    <h2>{inventory.product.name}</h2>
-                    <p>
-                      {inventory.product.variantName
-                        ? `${inventory.product.variantName} · `
-                        : ""}
-                      {inventory.product.rackLocation ?? "Rack not assigned"}
-                    </p>
-                  </div>
-                  <span className={inventory.reconciled ? "ledger-ok" : "ledger-warning"}>
-                    {inventory.reconciled
-                      ? "Stock records match"
-                      : "Stock needs checking"}
-                  </span>
-                </div>
-                {mode === "DETAIL" && <nav className="inventory-tabs" aria-label="SKU information">
-                  {([
-                    ["OVERVIEW", "Overview"],
-                    ["PURCHASES", `Purchases (${inventory.purchases.length})`],
-                    ["SALES", `Sales (${inventory.sales.length})`],
-                    ["MOVEMENTS", `Movements (${inventory.movementCount})`],
-                  ] as Array<[DetailTab, string]>).map(([value, label]) => (
-                    <button
-                      type="button"
-                      className={activeTab === value ? "active" : ""}
-                      onClick={() => setActiveTab(value)}
-                      key={value}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </nav>}
-
-                {(mode === "DETAIL" ? activeTab === "OVERVIEW" : mode === "COUNT") && (
-                  <>
-                {mode === "DETAIL" && <>
-                <section className="inventory-summary">
-                  <div className="balance-grid">
-                    {conditions.map(([value, label]) => (
-                      <div key={value}>
-                        <small>{label}</small>
-                        <strong>{inventory.balances[value]}</strong>
-                        <span>Recorded total {inventory.ledgerBalances[value]}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="inventory-price-grid">
-                    <div>
-                      <small>MRP</small>
-                      <strong>{formatMoney(inventory.product.mrpPaise)}</strong>
-                    </div>
-                    <div>
-                      <small>Retail price</small>
-                      <strong>{formatMoney(inventory.product.standardPricePaise)}</strong>
-                    </div>
-                    <div>
-                      <small>Wholesale price</small>
-                      <strong>{formatMoney(inventory.product.wholesalePricePaise)}</strong>
-                    </div>
-                    <div>
-                      <small>Your lowest price</small>
-                      <strong>{formatMoney(inventory.product.minimumPricePaise)}</strong>
-                    </div>
-                  </div>
-                  {inventory.inventoryValuePaise !== undefined && (
-                    <div className="owner-cost-grid">
-                      <div>
-                        <small>Stock cost value</small>
-                        <strong>{formatMoney(inventory.inventoryValuePaise)}</strong>
-                      </div>
-                      <div>
-                        <small>Average cost</small>
-                        <strong>{formatMoney(inventory.weightedAverageCostPaise ?? 0)}</strong>
-                      </div>
-                      <div>
-                        <small>Last purchase cost</small>
-                        <strong>{formatMoney(inventory.latestLandedCostPaise ?? 0)}</strong>
-                      </div>
-                    </div>
-                  )}
-                </section>
-
-                {role === "BUSINESS_OWNER" && (
-                  <section className="reorder-panel" aria-labelledby="reorder-heading">
-                    <div className="reorder-panel-heading">
-                      <div>
-                        <p className="eyebrow">Low-stock alert</p>
-                        <h2 id="reorder-heading">When should we buy more?</h2>
-                      </div>
-                      <span
-                        className={`reorder-status ${
-                          inventory.product.reorderPolicyStatus?.toLowerCase() ?? ""
-                        }`}
-                      >
-                        {inventory.product.reorderPolicyStatus ?? "Unconfigured"}
-                      </span>
-                    </div>
-                    <form onSubmit={submitReorderPolicy}>
-                      <label className="reorder-toggle">
-                        <input
-                          type="checkbox"
-                          checked={policyEnabled}
-                          onChange={(event) => setPolicyEnabled(event.target.checked)}
-                        />
-                        Warn me when this SKU is running low
-                      </label>
-                      {policyEnabled && (
-                        <>
-                          <div className="form-row two-columns">
-                            <label>Alert when sellable stock reaches
-                              <input
-                                type="number"
-                                min="0"
-                                max="100000"
-                                step="1"
-                                value={reorderPoint}
-                                onChange={(event) => setReorderPoint(event.target.value)}
-                                placeholder="Example: 2"
-                              />
-                            </label>
-                            <label>Restock up to
-                              <input
-                                type="number"
-                                min="1"
-                                max="100000"
-                                step="1"
-                                value={restockTarget}
-                                onChange={(event) => setRestockTarget(event.target.value)}
-                                placeholder="Example: 8"
-                              />
-                            </label>
-                          </div>
-                          {validConfiguredPolicy && (
-                            <div className="reorder-preview">
-                              <strong>
-                                {inventory.balances.SELLABLE <= parsedReorderPoint
-                                  ? `Order ${Math.max(
-                                    parsedRestockTarget - inventory.balances.SELLABLE,
-                                    0,
-                                  )} now`
-                                  : `Alert after ${
-                                    inventory.balances.SELLABLE - parsedReorderPoint
-                                  } more unit${
-                                    inventory.balances.SELLABLE - parsedReorderPoint === 1
-                                      ? ""
-                                      : "s"
-                                  } sell`}
-                              </strong>
-                              <span>
-                                Current sellable stock is {inventory.balances.SELLABLE}.
-                                Saving this policy never changes stock.
-                              </span>
-                            </div>
-                          )}
-                        </>
-                      )}
-                      <div className="form-row two-columns">
-                        <label>Why these quantities?
-                          <select
-                            value={policyReason}
-                            onChange={(event) => setPolicyReason(event.target.value)}
-                          >
-                            {reorderReasons.map(([value, label]) => (
-                              <option value={value} key={value}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>Short note
-                          <textarea
-                            value={policyNote}
-                            onChange={(event) => setPolicyNote(event.target.value)}
-                            maxLength={500}
-                            placeholder="Example: Two-week supplier lead time"
-                          />
-                        </label>
-                      </div>
-                      <button
-                        type="submit"
-                        className="complete-button"
-                        disabled={policySaving || !canSavePolicy}
-                      >
-                        {policySaving
-                          ? "Saving…"
-                          : policyEnabled
-                            ? "Save low-stock alert"
-                            : inventory.product.reorderPolicyStatus === "CONFIGURED"
-                              ? "Turn off low-stock alert"
-                              : "Low-stock alert not set"}
-                      </button>
-                    </form>
-                  </section>
-                )}
-                </>}
-
-                {mode === "COUNT" && (
-                <section className="count-panel" aria-labelledby="count-heading">
-                  <p className="eyebrow">Stock check</p>
-                  <h2 id="count-heading">Count what is physically present</h2>
-                  {canRequest ? (
-                    <form onSubmit={submitCount}>
-                      <div className="form-row two-columns">
-                        <label>Condition
-                          <select
-                            value={condition}
-                            onChange={(event) => {
-                              setCondition(event.target.value as StockCondition);
-                              setCountedQuantity("");
-                            }}
-                          >
-                            {conditions.map(([value, label]) => (
-                              <option value={value} key={value}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>Recorded quantity
-                          <input value={recordedQuantity} readOnly />
-                        </label>
-                      </div>
-                      <div className="count-entry">
-                        <label>Quantity physically present
-                          <input
-                            type="number"
-                            min="0"
-                            max="100000"
-                            step="1"
-                            value={countedQuantity}
-                            onChange={(event) => setCountedQuantity(event.target.value)}
-                            placeholder="Enter the count"
-                          />
-                        </label>
-                        <div className={`count-difference ${
-                          difference < 0 ? "negative" : difference > 0 ? "positive" : ""
-                        }`}>
-                          <small>Difference</small>
-                          <strong>
-                            {validCount
-                              ? `${difference > 0 ? "+" : ""}${difference}`
-                              : "—"}
-                          </strong>
-                        </div>
-                      </div>
-                      <div className="form-row two-columns">
-                        <label>Reason
-                          <select value={reason} onChange={(event) => setReason(event.target.value)}>
-                            {reasons.map(([value, label]) => (
-                              <option value={value} key={value}>{label}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>Count note
-                          <textarea
-                            value={note}
-                            onChange={(event) => setNote(event.target.value)}
-                            maxLength={500}
-                            placeholder="Example: Counted rack C2-S4 at closing"
-                          />
-                        </label>
-                      </div>
-                      <div className="count-safety">
-                        <strong>Submitting does not change stock.</strong>
-                        <span>
-                          An owner reviews the exact recorded and counted quantities.
-                          If stock changes first, this request cannot be applied.
-                        </span>
-                      </div>
-                      <button
-                        type="submit"
-                        className="complete-button"
-                        disabled={saving || !validCount || difference === 0 || note.trim().length < 3}
-                      >
-                        {saving ? "Submitting…" : "Submit difference for approval"}
-                      </button>
-                    </form>
-                  ) : (
-                    <p className="view-only-note">
-                      Store operators can view balances and history. A trusted operator
-                      or business owner must perform and submit physical counts.
-                    </p>
-                  )}
-                </section>
-                )}
-                  </>
-                )}
-
-                {mode === "DETAIL" && activeTab === "PURCHASES" && (
-                  <section className="inventory-history-panel" aria-labelledby="purchase-history-heading">
-                    <div className="section-title">
-                      <div>
-                        <h2 id="purchase-history-heading">Purchase history</h2>
-                        <p>When this SKU arrived, from whom and at what cost.</p>
-                      </div>
-                      <span>{inventory.purchases.length} receipts</span>
-                    </div>
-                    {inventory.purchases.length ? (
-                      <div className="inventory-history-list">
-                        {inventory.purchases.map((purchase) => (
-                          <article key={purchase.id}>
-                            <div>
-                              <strong>{purchase.supplierName}</strong>
-                              <small>
-                                {purchase.receiptNumber}
-                                {purchase.supplierInvoiceReference
-                                  ? ` · Bill ${purchase.supplierInvoiceReference}`
-                                  : ""}
-                              </small>
-                            </div>
-                            <div>
-                              <strong>
-                                {purchase.sellableQuantity + purchase.openBoxQuantity + purchase.damagedQuantity}
-                                {" "}received
-                              </strong>
-                              <small>
-                                {purchase.openBoxQuantity
-                                  ? `${purchase.openBoxQuantity} open box · `
-                                  : ""}
-                                {purchase.damagedQuantity
-                                  ? `${purchase.damagedQuantity} damaged`
-                                  : "Sellable stock"}
-                              </small>
-                            </div>
-                            {purchase.invoiceUnitCostPaise !== undefined && (
-                              <div>
-                                <strong>{formatMoney(purchase.invoiceUnitCostPaise)} each</strong>
-                                <small>Purchase cost</small>
-                              </div>
-                            )}
-                            <time>{happenedAt.format(new Date(purchase.happenedAt))}</time>
-                          </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="inventory-empty-copy">No completed stock receipts for this SKU yet.</p>
-                    )}
-                  </section>
-                )}
-
-                {mode === "DETAIL" && activeTab === "SALES" && (
-                  <section className="inventory-history-panel" aria-labelledby="sales-history-heading">
-                    <div className="section-title">
-                      <div>
-                        <h2 id="sales-history-heading">Sold history</h2>
-                        <p>Final selling price and margin for each completed sale.</p>
-                      </div>
-                      <span>
-                        {inventory.sales.reduce((sum, sale) => sum + sale.quantity, 0)} units sold
-                      </span>
-                    </div>
-                    {inventory.sales.length ? (
-                      <>
-                      <SalePriceTrend sales={inventory.sales} />
-                      <div className="inventory-history-list sales">
-                        {inventory.sales.map((sale) => (
-                          <article key={sale.id}>
-                            <div>
-                              <strong>{sale.saleNumber}</strong>
-                              <small>
-                                {sale.saleType === "WHOLESALE" ? "Wholesale" : "Retail"} · {sale.customerName}
-                              </small>
-                            </div>
-                            <div>
-                              <strong>{sale.quantity} × {formatMoney(sale.unitPricePaise)}</strong>
-                              <small>
-                                List {formatMoney(
-                                  sale.saleType === "WHOLESALE"
-                                    ? sale.wholesalePricePaise
-                                    : sale.standardPricePaise
-                                )}
-                              </small>
-                            </div>
-                            {sale.grossProductProfitPaise !== undefined && (
-                              <div>
-                                <strong className={sale.grossProductProfitPaise < 0 ? "negative" : "positive"}>
-                                  {formatMoney(sale.grossProductProfitPaise)}
-                                </strong>
-                                <small>Product profit</small>
-                              </div>
-                            )}
-                            <time>{happenedAt.format(new Date(sale.happenedAt))}</time>
-                          </article>
-                        ))}
-                      </div>
-                      </>
-                    ) : (
-                      <p className="inventory-empty-copy">No completed sales for this SKU yet.</p>
-                    )}
-                  </section>
-                )}
-
-                {mode === "DETAIL" && activeTab === "MOVEMENTS" && (
-                <section className="movement-panel" aria-labelledby="movement-heading">
-                  <div className="section-title">
-                    <div>
-                      <h2 id="movement-heading">Stock timeline</h2>
-                      <p>Every stock-in, sale and approved correction.</p>
-                    </div>
-                    <span>{inventory.movementCount} records</span>
-                  </div>
-                  <div className="movement-list">
-                    {inventory.movements.map((movement) => (
-                      <article className="movement-card" key={movement.id}>
-                        <div className="movement-sign">
-                          <strong className={movement.quantityDelta > 0 ? "positive" : "negative"}>
-                            {movement.quantityDelta > 0 ? "+" : ""}
-                            {movement.quantityDelta}
-                          </strong>
-                          <small>{conditionLabel(movement.stockCondition)}</small>
-                        </div>
-                        <div className="movement-copy">
-                          <strong>{movementLabel(movement.movementType)}</strong>
-                          <span>{movement.referenceLabel}</span>
-                          <small>
-                            {happenedAt.format(new Date(movement.happenedAt))}
-                            {" · "}{movement.actorName}
-                          </small>
-                          {movement.reason && (
-                            <small>{reasonLabel(movement.reason)} · {movement.note}</small>
-                          )}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-                )}
-              </>
+              <section className="inventory-v2__policy-product">
+                <div><strong>{inventory.product.name}</strong><span>{inventory.product.sku}</span></div>
+                <div><small>Sellable now</small><strong>{inventory.balances.SELLABLE} units</strong></div>
+              </section>
             )}
-          </section>}
-        </div>
+
+            <section className="inventory-v2__policy-decision">
+              <div>
+                <span className="inventory-v2__policy-step">1</span>
+                <div><strong>When should we remind you?</strong><p>Add this product to the reorder list when sellable stock reaches this quantity.</p></div>
+              </div>
+              <div className="inventory-v2__quantity-control">
+                <button type="button" aria-label="Decrease alert quantity" onClick={() => changePolicyQuantity("POINT", -1)}>−</button>
+                <label>
+                  <span>Alert at</span>
+                  <input type="number" min="0" step="1" value={reorderPoint} onChange={(event) => setReorderPoint(event.target.value)} inputMode="numeric" placeholder="0" />
+                  <small>units remaining</small>
+                </label>
+                <button type="button" aria-label="Increase alert quantity" onClick={() => changePolicyQuantity("POINT", 1)}>+</button>
+              </div>
+            </section>
+
+            <section className="inventory-v2__policy-decision">
+              <div>
+                <span className="inventory-v2__policy-step">2</span>
+                <div><strong>What stock level should you restore?</strong><p>This becomes the suggested stock level after the next purchase.</p></div>
+              </div>
+              <div className="inventory-v2__quantity-control">
+                <button type="button" aria-label="Decrease restock goal" onClick={() => changePolicyQuantity("TARGET", -1)}>−</button>
+                <label>
+                  <span>Restock goal</span>
+                  <input type="number" min="1" step="1" value={restockTarget} onChange={(event) => setRestockTarget(event.target.value)} inputMode="numeric" placeholder="1" />
+                  <small>units in stock</small>
+                </label>
+                <button type="button" aria-label="Increase restock goal" onClick={() => changePolicyQuantity("TARGET", 1)}>+</button>
+              </div>
+            </section>
+
+            {inventory && Number.isInteger(Number(reorderPoint)) && Number.isInteger(Number(restockTarget)) && Number(restockTarget) > Number(reorderPoint) && (
+              <section className={`inventory-v2__policy-preview${inventory.balances.SELLABLE <= Number(reorderPoint) ? " is-due" : ""}`}>
+                <strong>{inventory.balances.SELLABLE <= Number(reorderPoint) ? "This product needs attention now" : "Your reminder is ready"}</strong>
+                <p>
+                  {inventory.balances.SELLABLE <= Number(reorderPoint)
+                    ? `It will appear in the reorder list now, with ${Math.max(0, Number(restockTarget) - inventory.balances.SELLABLE)} units suggested to reach your goal.`
+                    : `It will appear after ${inventory.balances.SELLABLE - Number(reorderPoint)} more units are sold. At that point, order about ${Number(restockTarget) - Number(reorderPoint)} units.`}
+                </p>
+              </section>
+            )}
+
+            <label className="inventory-v2__policy-note">Note <span>(optional)</span><input value={policyNote} onChange={(event) => setPolicyNote(event.target.value)} placeholder="Example: Supplier usually needs 10 days" maxLength={120} /></label>
+          </form>
+        </Modal>
       </section>
     </AppShell>
   );

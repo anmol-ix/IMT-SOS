@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PAYMENT_MODES } from "@/server/payment-policy";
+import { DUE_REASONS, PAYMENT_MODES } from "@/server/payment-policy";
 import { PRICE_EXCEPTION_REASONS } from "@/server/sale-policy";
 
 export const saleLineSchema = z.object({
@@ -30,7 +30,6 @@ export const saleRequestSchema = z.object({
       paymentMode: z.enum(PAYMENT_MODES),
       amountPaise: z.number().int().positive().max(100_000_000),
     }))
-    .min(1)
     .max(2)
     .superRefine((payments, context) => {
       if (new Set(payments.map((payment) => payment.paymentMode)).size !== payments.length) {
@@ -40,6 +39,7 @@ export const saleRequestSchema = z.object({
         });
       }
     }),
+  dueReason: z.enum(DUE_REASONS).optional(),
   offline: z
     .object({
       schemaVersion: z.literal(1),

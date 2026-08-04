@@ -1,20 +1,27 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export default function Modal({
   open,
   title,
   description,
   onClose,
+  panelClassName,
+  footer,
   children,
 }: {
   open: boolean;
   title: string;
   description?: string;
   onClose: () => void;
+  panelClassName?: string;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
+  const titleId = useId();
+
   useEffect(() => {
     if (!open) return;
     function closeOnEscape(event: KeyboardEvent) {
@@ -25,24 +32,26 @@ export default function Modal({
   }, [onClose, open]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
         aria-modal="true"
-        className="modal-panel"
+        className={`modal-panel${panelClassName ? ` ${panelClassName}` : ""}`}
         role="dialog"
-        aria-labelledby="app-modal-title"
+        aria-labelledby={titleId}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="modal-heading">
           <div>
-            <h2 id="app-modal-title">{title}</h2>
+            <h2 id={titleId}>{title}</h2>
             {description && <p>{description}</p>}
           </div>
           <button type="button" aria-label="Close" onClick={onClose}>×</button>
         </header>
         <div className="modal-body">{children}</div>
+        {footer && <footer className="modal-footer">{footer}</footer>}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

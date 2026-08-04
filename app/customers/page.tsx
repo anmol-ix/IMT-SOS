@@ -108,7 +108,7 @@ export default async function CustomersPage({
                   <span className="customer-avatar" aria-hidden="true">{customer.name.charAt(0).toUpperCase()}</span>
                   <span className="customer-list-copy">
                     <strong>{customer.name}</strong>
-                    <small>{customer.phone}{customer.locality ? ` · ${customer.locality}` : ""}</small>
+                    <small>{customer.phone ?? "Phone not added"}{customer.locality ? ` · ${customer.locality}` : ""}</small>
                     <span className={`customer-segment ${customer.segment.toLowerCase()}`}>
                       {segmentLabels[customer.segment]}
                     </span>

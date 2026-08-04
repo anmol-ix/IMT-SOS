@@ -3,7 +3,10 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import type { CurrentUser } from "./auth/current-user";
 import { inTransaction } from "./database";
-import { allocateWeightedAverageCost } from "./inventory-costing";
+import {
+  consumeFifoInventory,
+  consumeInventoryLots,
+} from "./inventory-lots";
 import {
   consumeGuestSaleApproval,
   CustomerOrGuestApprovalRequiredError,
@@ -11,8 +14,9 @@ import {
 } from "./guest-sale-approvals";
 import { requiresCustomerPrompt } from "./guest-sale-policy";
 import {
+  type DueReason,
   type SalePayment,
-  requireExactPayments,
+  requirePaymentBalance,
 } from "./payment-policy";
 import { consumePriceApproval, requireApprovedPrice } from "./price-approvals";
 import { IdempotencyConflictError } from "./proof-command";
@@ -24,6 +28,8 @@ import {
   type PriceExceptionReason,
   requireExceptionReason,
 } from "./sale-policy";
+import { minimumGrowthPrice } from "@/shared/product-setup-policy";
+import { applyMarkup, type FifoAllocation } from "@/shared/fifo-inventory";
 
 export type CompleteSaleLineInput = {
   variantId: string;
@@ -43,6 +49,7 @@ export type CompleteSaleInput = {
   guestApprovalId?: string;
   ownerGuestOverride?: boolean;
   payments: SalePayment[];
+  dueReason?: DueReason;
   offline?: {
     schemaVersion: 1;
     deviceId: string;
@@ -64,6 +71,8 @@ export type CompleteSaleLineResult = {
   productName: string;
   sku: string;
   quantity: number;
+  mrpPaise: number;
+  listedPricePaise: number;
   unitPricePaise: number;
   totalPaise: number;
   remainingStock: number;
@@ -81,6 +90,9 @@ export type CompleteSaleResult = {
   saleType: "RETAIL" | "WHOLESALE";
   payments: SalePayment[];
   totalPaise: number;
+  amountPaidPaise: number;
+  balanceDuePaise: number;
+  dueReason: DueReason | null;
   lines: CompleteSaleLineResult[];
   grossProductProfitPaise: number;
   replacementMarginPaise: number;
@@ -120,6 +132,7 @@ type SaleLineContext = {
   result: CompleteSaleLineResult;
   accountingCogsPaise: number;
   replacementCostPaise: number;
+  fifoAllocations: FifoAllocation[];
   exception?: {
     approvalId: string | null;
     reason: PriceExceptionReason;
@@ -174,6 +187,16 @@ export class WholesaleCustomerRequiredError extends Error {
   constructor() {
     super("Select the shopkeeper or business customer before completing a Wholesale sale.");
     this.name = "WholesaleCustomerRequiredError";
+  }
+}
+
+export class CustomerRequiredForDueError extends Error {
+  readonly status = 400;
+  readonly code = "CUSTOMER_REQUIRED_FOR_DUE";
+
+  constructor() {
+    super("Select a customer before recording an unpaid balance.");
+    this.name = "CustomerRequiredForDueError";
   }
 }
 
@@ -308,29 +331,46 @@ export async function completeSale(
       if (row.quantity_on_hand < line.quantity) throw new InsufficientStockError();
 
       const latestLandedCostPaise = Number(row.latest_landed_cost_paise);
+      const fifo = await consumeFifoInventory(client, {
+        businessId: user.businessId,
+        locationId: row.location_id,
+        variantId: row.variant_id,
+        quantityOnHand: row.quantity_on_hand,
+        inventoryValuePaise: Number(row.inventory_value_paise),
+        quantity: line.quantity,
+      });
+      const accountingCogsPaise = fifo.totalCostPaise;
+      const fifoWholesaleTotalPaise = fifo.allocations.reduce(
+        (sum, allocation) =>
+          sum + allocation.quantity * applyMarkup(allocation.unitCostPaise),
+        0,
+      );
+      const fifoWholesaleUnitPricePaise = Math.ceil(
+        fifoWholesaleTotalPaise / line.quantity,
+      );
       const listedPricePaise = saleType === "WHOLESALE"
-        ? Number(row.wholesale_price_paise)
+        ? fifoWholesaleUnitPricePaise
         : Number(row.standard_price_paise);
+      const minimumPricePaise = Math.min(
+        listedPricePaise,
+        saleType === "WHOLESALE"
+          ? Math.ceil(accountingCogsPaise / line.quantity)
+          : minimumGrowthPrice(latestLandedCostPaise),
+      );
+      const permittedCeilingPaise = saleType === "WHOLESALE"
+        ? Math.max(
+            listedPricePaise,
+            Number(row.standard_price_paise),
+            Number(row.mrp_paise),
+          )
+        : listedPricePaise;
       const price = {
-        standardPricePaise: listedPricePaise,
-        ownerFloorPaise: Math.max(Number(row.owner_floor_paise), latestLandedCostPaise),
-        trustedOperatorFloorPaise: Math.max(
-          Number(row.trusted_operator_floor_paise),
-          latestLandedCostPaise,
-        ),
-        storeOperatorFloorPaise: Math.max(
-          Number(row.store_operator_floor_paise),
-          latestLandedCostPaise,
-        ),
+        standardPricePaise: permittedCeilingPaise,
+        ownerFloorPaise: minimumPricePaise,
+        trustedOperatorFloorPaise: minimumPricePaise,
+        storeOperatorFloorPaise: minimumPricePaise,
       };
       const totalPaise = line.quantity * line.unitPricePaise;
-      const accountingCogsPaise = Number(
-        allocateWeightedAverageCost(
-          BigInt(row.inventory_value_paise),
-          row.quantity_on_hand,
-          line.quantity,
-        ),
-      );
       const replacementCostPaise = latestLandedCostPaise * line.quantity;
       const needsApproval = priceNeedsApproval(line.unitPricePaise, price, user.role);
       let exception: SaleLineContext["exception"];
@@ -392,12 +432,15 @@ export async function completeSale(
         row,
         accountingCogsPaise,
         replacementCostPaise,
+        fifoAllocations: fifo.allocations,
         exception,
         result: {
           variantId: row.variant_id,
           productName: row.product_name,
           sku: row.sku,
           quantity: line.quantity,
+          mrpPaise: Number(row.mrp_paise),
+          listedPricePaise,
           unitPricePaise: line.unitPricePaise,
           totalPaise,
           remainingStock,
@@ -414,7 +457,11 @@ export async function completeSale(
     const saleNumber = `SAL-${saleId.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
     const completedAt = new Date().toISOString();
     const totalPaise = contexts.reduce((sum, line) => sum + line.result.totalPaise, 0);
-    requireExactPayments(input.payments, totalPaise);
+    const paymentBalance = requirePaymentBalance(
+      input.payments,
+      totalPaise,
+      input.dueReason,
+    );
     const grossProductProfitPaise = contexts.reduce(
       (sum, line) => sum + line.result.grossProductProfitPaise,
       0,
@@ -423,12 +470,12 @@ export async function completeSale(
       (sum, line) => sum + line.result.replacementMarginPaise,
       0,
     );
-    let customer: { id: string; name: string; phone_normalized: string } | null = null;
+    let customer: { id: string; name: string; phone_normalized: string | null } | null = null;
     if (input.customerId) {
       const customerResult = await client.query<{
         id: string;
         name: string;
-        phone_normalized: string;
+        phone_normalized: string | null;
       }>(
         `SELECT id, name, phone_normalized
            FROM customers
@@ -440,6 +487,9 @@ export async function completeSale(
     }
     if (saleType === "WHOLESALE" && !customer) {
       throw new WholesaleCustomerRequiredError();
+    }
+    if (paymentBalance.balanceDuePaise > 0 && !customer) {
+      throw new CustomerRequiredForDueError();
     }
 
     let guestApproval: { id: string; reason: "CUSTOMER_DECLINED" } | null = null;
@@ -471,6 +521,9 @@ export async function completeSale(
       saleType,
       payments: input.payments,
       totalPaise,
+      amountPaidPaise: paymentBalance.amountPaidPaise,
+      balanceDuePaise: paymentBalance.balanceDuePaise,
+      dueReason: input.dueReason ?? null,
       lines,
       grossProductProfitPaise,
       replacementMarginPaise,
@@ -481,9 +534,10 @@ export async function completeSale(
          (id, sale_number, business_id, location_id, status, total_paise, created_by,
           completed_at, command_id, request_hash, customer_id, customer_name, customer_phone,
           guest_approval_id, guest_override_reason, sales_channel, sale_type, result_json,
-          offline_device_id, offline_created_at, offline_catalog_as_of)
+          offline_device_id, offline_created_at, offline_catalog_as_of,
+          amount_paid_paise, balance_due_paise, due_reason)
        VALUES ($1, $2, $3, $4, 'COMPLETED', $5, $6, $7, $8, $9, $10, $11, $12,
-               $13, $14, 'SHOP', $15, $16, $17, $18, $19)
+               $13, $14, 'SHOP', $15, $16, $17, $18, $19, $20, $21, $22)
        ON CONFLICT (command_id) WHERE command_id IS NOT NULL DO NOTHING
        RETURNING id`,
       [
@@ -506,6 +560,9 @@ export async function completeSale(
         input.offline?.deviceId ?? null,
         input.offline?.createdAt ?? null,
         input.offline?.catalogAsOf ?? null,
+        paymentBalance.amountPaidPaise,
+        paymentBalance.balanceDuePaise,
+        input.dueReason ?? null,
       ],
     );
     if (!inserted.rows[0]) {
@@ -520,13 +577,16 @@ export async function completeSale(
     }
 
     for (const line of contexts) {
+      const saleLineId = randomUUID();
       await client.query(
         `INSERT INTO sale_lines
-           (sale_id, variant_id, price_version_id, quantity, unit_price_paise,
+           (id, sale_id, variant_id, price_version_id, quantity, unit_price_paise,
             replacement_unit_cost_paise, accounting_cogs_paise,
-            mrp_paise, standard_price_paise, wholesale_price_paise, price_approval_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            mrp_paise, standard_price_paise, wholesale_price_paise, price_approval_id,
+            costing_method)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'FIFO')`,
         [
+          saleLineId,
           saleId,
           line.row.variant_id,
           line.row.price_version_id,
@@ -536,10 +596,13 @@ export async function completeSale(
           line.accountingCogsPaise,
           line.row.mrp_paise,
           line.row.standard_price_paise,
-          line.row.wholesale_price_paise,
+          saleType === "WHOLESALE"
+            ? line.result.listedPricePaise
+            : line.row.wholesale_price_paise,
           line.exception?.approvalId ?? null,
         ],
       );
+      await consumeInventoryLots(client, line.fifoAllocations, saleLineId);
       if (line.exception?.approvalId) {
         await consumePriceApproval(client, line.exception.approvalId);
       }
@@ -595,6 +658,9 @@ export async function completeSale(
           totalPaise,
           saleType,
           payments: input.payments,
+          amountPaidPaise: paymentBalance.amountPaidPaise,
+          balanceDuePaise: paymentBalance.balanceDuePaise,
+          dueReason: input.dueReason ?? null,
           customerId: customer?.id ?? null,
           guestApprovalId: guestApproval?.id ?? null,
           guestOverrideReason,

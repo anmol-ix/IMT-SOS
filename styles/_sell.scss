@@ -1,0 +1,165 @@
+@use "mixins" as *;
+
+// Final Sell interaction contract. This file is loaded after the product-wide
+// responsive layer so the POS experience stays consistent across viewports.
+.sale-workspace-page {
+  > .sale-alert {
+    position: fixed;
+    z-index: 90;
+    top: 5rem;
+    right: var(--space-5);
+    display: block;
+    width: min(28rem, calc(100vw - (2 * var(--space-4))));
+    margin: 0;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .cart-heading-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .cancel-sale-action {
+    min-height: 2rem;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--danger-700);
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 750;
+    text-decoration: underline;
+    text-underline-offset: 0.2rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+}
+
+.sale-line-editor .wholesale-price-editor {
+  display: grid;
+  gap: var(--space-3);
+
+  .preset-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.negotiated-price-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 13rem);
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 750;
+}
+
+.currency-input {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-panel);
+
+  &:focus-within {
+    border-color: var(--brand-500);
+    box-shadow: var(--focus-ring);
+  }
+
+  b {
+    padding-left: var(--space-3);
+    color: var(--text-primary);
+    font-size: 1rem;
+  }
+
+  input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    padding-left: var(--space-2);
+    box-shadow: none;
+    font-size: 1rem;
+    font-weight: 750;
+
+    &:focus {
+      box-shadow: none;
+    }
+  }
+}
+
+.wholesale-price-note {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+@include below(tablet) {
+  .sale-workspace-page,
+  .sale-workspace-page.cart-view-open,
+  .sale-workspace-page.checkout-view-open {
+    > .sale-alert {
+      display: block !important;
+      top: 6.75rem;
+      right: var(--space-3);
+      left: var(--space-3);
+      width: auto;
+      max-width: none;
+    }
+  }
+}
+
+@include below(mobile) {
+  .modal-backdrop:has(.discount-modal-panel) {
+    place-items: end center;
+    padding: var(--space-2) var(--space-2) 0;
+  }
+
+  .modal-panel.discount-modal-panel {
+    width: 100%;
+    height: auto;
+    max-height: calc(100svh - var(--space-2));
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+
+    > .modal-heading {
+      padding: var(--space-4);
+    }
+
+    > .modal-body {
+      max-height: calc(100svh - 6rem);
+      padding: var(--space-4);
+    }
+
+    .sale-line-editor {
+      gap: var(--space-2);
+
+      .preset-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--space-2);
+
+        button {
+          min-height: 3rem;
+          padding-inline: var(--space-2);
+          font-size: 0.75rem;
+        }
+      }
+
+      .line-editor-actions {
+        bottom: calc(-1 * var(--space-4));
+      }
+
+      .wholesale-price-editor .preset-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  }
+
+  .negotiated-price-field {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+}

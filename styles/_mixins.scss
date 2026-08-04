@@ -1,14 +1,21 @@
 @use "sass:map";
-@use "tokens";
+
+// Keep responsive settings in this mixin-only module. Importing the token
+// stylesheet here would also emit its global `:root` rules inside CSS Modules.
+$breakpoints: (
+  mobile: 720px,
+  tablet: 1024px,
+  wide: 1440px,
+);
 
 @mixin below($name) {
-  @media (max-width: map.get(tokens.$breakpoints, $name)) {
+  @media (max-width: map.get($breakpoints, $name)) {
     @content;
   }
 }
 
 @mixin above($name) {
-  @media (min-width: calc(map.get(tokens.$breakpoints, $name) + 0.02px)) {
+  @media (min-width: calc(map.get($breakpoints, $name) + 0.02px)) {
     @content;
   }
 }

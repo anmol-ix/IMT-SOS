@@ -29,7 +29,7 @@ export type CreateProductInput = {
   supplierBarcode?: string;
   unitOfMeasure: ProductUnit;
   packSize: number;
-  rackLocation: string;
+  rackLocation: string | null;
   purchaseCostPaise: number;
   standardPricePaise: number;
   wholesalePricePaise?: number;
@@ -39,13 +39,23 @@ export type CreateProductInput = {
   storeOperatorFloorPaise?: number;
 };
 
+export type CreateProductFamilyInput = Omit<
+  CreateProductInput,
+  "variantName" | "variantCode" | "supplierBarcode"
+> & {
+  variants: Array<{
+    name: string;
+    code: string;
+  }>;
+};
+
 export type CreatedProduct = {
   id: string;
   name: string;
   variantName: string | null;
   sku: string;
   barcode: string;
-  rackLocation: string;
+  rackLocation: string | null;
   stock: number;
   openBoxStock: number;
   damagedStock: number;
@@ -67,7 +77,7 @@ type ProductResultRow = {
   name: string;
   variant_name: string | null;
   sku: string;
-  rack_location: string;
+  rack_location: string | null;
   mrp_paise: string;
   standard_price_paise: string;
   wholesale_price_paise: string;
@@ -115,7 +125,7 @@ function normalizedInput(input: CreateProductInput): CreateProductInput {
       : {}),
     unitOfMeasure: input.unitOfMeasure,
     packSize: input.packSize,
-    rackLocation: input.rackLocation.trim().toUpperCase(),
+    rackLocation: input.rackLocation?.trim().toUpperCase() || null,
     purchaseCostPaise: input.purchaseCostPaise,
     standardPricePaise: input.standardPricePaise,
     ...(input.wholesalePricePaise === undefined
@@ -155,7 +165,7 @@ function validateInput(input: CreateProductInput) {
       "Add the variant name when a variant SKU code is used.",
     );
   }
-  if (!isRackCode(input.rackLocation)) {
+  if (input.rackLocation && !isRackCode(input.rackLocation)) {
     throw new InvalidProductSetupError("Choose a rack from the ItsMyToy rack list.");
   }
   if (!Number.isInteger(input.packSize) || input.packSize < 1) {
@@ -444,5 +454,229 @@ export async function createProduct(
       weightedAverageCostPaise: 0,
       replayed: false,
     };
+  });
+}
+
+export async function createProductFamily(
+  user: CurrentUser,
+  commandId: string,
+  suppliedInput: CreateProductFamilyInput,
+): Promise<CreatedProduct[]> {
+  requireRole(user.role, ["BUSINESS_OWNER"]);
+  const base = normalizedInput({
+    ...suppliedInput,
+    variantName: undefined,
+    variantCode: undefined,
+    supplierBarcode: undefined,
+  });
+  const variants = suppliedInput.variants.map((variant) => ({
+    name: variant.name.trim(),
+    code: normalizeSkuCode(variant.code, 4),
+  }));
+  validateInput(base);
+  if (variants.length < 1 || variants.length > 50) {
+    throw new InvalidProductSetupError("Add between one and 50 variants.");
+  }
+  if (variants.some((variant) => variant.name.length < 1 || variant.code.length < 2)) {
+    throw new InvalidProductSetupError(
+      "Every variant needs a name and a code of at least two letters or numbers.",
+    );
+  }
+  const normalizedCodes = variants.map((variant) => variant.code);
+  if (new Set(normalizedCodes).size !== normalizedCodes.length) {
+    throw new InvalidProductSetupError("Each variant code must be unique for this product.");
+  }
+  const requestHash = createHash("sha256")
+    .update(JSON.stringify({ base, variants }))
+    .digest("hex");
+
+  return inTransaction(async (client) => {
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [`${user.businessId}:product-family:${commandId}`],
+    );
+    const prior = await client.query<ProductResultRow>(
+      `SELECT
+         v.id, p.name, v.variant_name, v.sku, v.rack_location,
+         pv.mrp_paise, pv.standard_price_paise, pv.wholesale_price_paise,
+         pv.owner_floor_paise,
+         pv.trusted_operator_floor_paise, pv.store_operator_floor_paise,
+         ib.latest_landed_cost_paise, p.creation_request_hash
+       FROM products p
+       JOIN product_variants v ON v.product_id = p.id
+       JOIN price_versions pv ON pv.variant_id = v.id AND pv.effective_to IS NULL
+       JOIN inventory_balances ib ON ib.variant_id = v.id
+       WHERE p.business_id = $1 AND p.creation_command_id = $2
+       ORDER BY v.sku`,
+      [user.businessId, commandId],
+    );
+    if (prior.rows.length > 0) {
+      if (prior.rows[0].creation_request_hash !== requestHash) {
+        throw new IdempotencyConflictError();
+      }
+      return prior.rows.map((row) => resultView(row, true));
+    }
+
+    const location = await client.query<{ id: string }>(
+      `SELECT id FROM locations
+        WHERE business_id = $1 AND status = 'ACTIVE'
+        ORDER BY created_at
+        LIMIT 1`,
+      [user.businessId],
+    );
+    if (!location.rows[0]) {
+      throw new InvalidProductSetupError(
+        "An active shop location is required before a product can be created.",
+      );
+    }
+
+    await client.query(
+      `INSERT INTO business_sku_sequences (business_id, last_number)
+       VALUES ($1, 0)
+       ON CONFLICT (business_id) DO NOTHING`,
+      [user.businessId],
+    );
+    const sequence = await client.query<{ last_number: number }>(
+      `UPDATE business_sku_sequences
+          SET last_number = last_number + 1, updated_at = now()
+        WHERE business_id = $1 AND last_number < 9999
+        RETURNING last_number`,
+      [user.businessId],
+    );
+    if (!sequence.rows[0]) {
+      throw new InvalidProductSetupError(
+        "The four-digit SKU sequence is exhausted. Expand the SKU format before creating more products.",
+      );
+    }
+    const skus = variants.map((variant) =>
+      buildInternalSku(
+        base.categoryCode,
+        base.subcategoryCode,
+        sequence.rows[0].last_number,
+        variant.code,
+      ),
+    );
+    const skuConflict = await client.query(
+      `SELECT sku FROM product_variants
+        WHERE upper(trim(sku)) = ANY($1::text[])
+        LIMIT 1`,
+      [skus],
+    );
+    if (skuConflict.rows[0]) {
+      throw new ProductIdentityConflictError(
+        "A generated variant SKU already exists. Review the variant codes before retrying.",
+      );
+    }
+
+    const product = await client.query<{ id: string }>(
+      `INSERT INTO products
+         (business_id, name, category, subcategory, brand,
+          creation_command_id, creation_request_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        user.businessId,
+        base.productName,
+        base.category,
+        base.subcategory,
+        base.brand ?? null,
+        commandId,
+        requestHash,
+      ],
+    );
+    const floors = resolvedFloors(base);
+    const created: CreatedProduct[] = [];
+    for (let index = 0; index < variants.length; index += 1) {
+      const variantInput = variants[index];
+      const sku = skus[index];
+      const variant = await client.query<{ id: string }>(
+        `INSERT INTO product_variants
+           (product_id, sku, variant_name, rack_location, unit_of_measure, pack_size)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id`,
+        [
+          product.rows[0].id,
+          sku,
+          variantInput.name,
+          base.rackLocation,
+          base.unitOfMeasure,
+          base.packSize,
+        ],
+      );
+      await client.query(
+        `INSERT INTO barcodes (variant_id, barcode_value, is_primary)
+         VALUES ($1, $2, true)`,
+        [variant.rows[0].id, sku],
+      );
+      await client.query(
+        `INSERT INTO price_versions
+           (variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+            wholesale_price_paise, owner_floor_paise, trusted_operator_floor_paise,
+            store_operator_floor_paise, effective_from, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)`,
+        [
+          variant.rows[0].id,
+          base.purchaseCostPaise,
+          base.mrpPaise,
+          base.standardPricePaise,
+          base.wholesalePricePaise ?? base.standardPricePaise,
+          floors.ownerFloorPaise,
+          floors.trustedOperatorFloorPaise,
+          floors.storeOperatorFloorPaise,
+          user.id,
+        ],
+      );
+      await client.query(
+        `INSERT INTO inventory_balances
+           (location_id, variant_id, quantity_on_hand, inventory_value_paise,
+            latest_landed_cost_paise)
+         VALUES ($1, $2, 0, 0, $3)`,
+        [location.rows[0].id, variant.rows[0].id, base.purchaseCostPaise],
+      );
+      await client.query(
+        `INSERT INTO audit_events
+           (business_id, actor_user_id, event_type, entity_type, entity_id, details)
+         VALUES ($1, $2, 'PRODUCT_CREATED', 'PRODUCT_VARIANT', $3, $4)`,
+        [
+          user.businessId,
+          user.id,
+          variant.rows[0].id,
+          {
+            sku,
+            category: base.category,
+            subcategory: base.subcategory,
+            variantName: variantInput.name,
+            standardPricePaise: base.standardPricePaise,
+            wholesalePricePaise:
+              base.wholesalePricePaise ?? base.standardPricePaise,
+            mrpPaise: base.mrpPaise,
+          },
+        ],
+      );
+      created.push({
+        id: variant.rows[0].id,
+        name: base.productName,
+        variantName: variantInput.name,
+        sku,
+        barcode: sku,
+        rackLocation: base.rackLocation,
+        stock: 0,
+        openBoxStock: 0,
+        damagedStock: 0,
+        mrpPaise: base.mrpPaise,
+        standardPricePaise: base.standardPricePaise,
+        wholesalePricePaise:
+          base.wholesalePricePaise ?? base.standardPricePaise,
+        minimumPricePaise: floors.ownerFloorPaise,
+        ownerFloorPaise: floors.ownerFloorPaise,
+        trustedOperatorFloorPaise: floors.trustedOperatorFloorPaise,
+        storeOperatorFloorPaise: floors.storeOperatorFloorPaise,
+        inventoryValuePaise: 0,
+        latestLandedCostPaise: base.purchaseCostPaise,
+        weightedAverageCostPaise: 0,
+        replayed: false,
+      });
+    }
+    return created;
   });
 }
