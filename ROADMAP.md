@@ -1,12 +1,37 @@
 # ItsMyToy Local Product Roadmap
 
-Last verified: 28 July 2026
+Last verified: 30 July 2026
 
 Status means implemented and locally verified, not only designed.
 
+## UX restructure — Complete locally
+
+- Product-wide assessment, sitemap, role journeys, SWOT and page contracts are
+  defined in `PRODUCT_UX_RESTRUCTURE.md`
+- Global navigation now uses seven business modules instead of exposing every
+  feature as a separate destination
+- Sell now separates Retail, Wholesale and paginated sales history
+- Inventory now separates product list, product detail, receive stock, physical
+  counts and label CSV preparation
+- Customers now separates the searchable directory from a focused customer
+  profile and purchase history
+- Reports now separates overview, sales, inventory and customer decisions
+- Operations now separates activity, approval queues and daily closing; each
+  approval type opens as one focused queue
+- Settings now separates team members, invitations and approved devices
+- Home is reduced to four useful numbers, one action queue and four shortcuts
+- Customer selection in Sell uses a reusable responsive dialog instead of
+  expanding the checkout page
+- Desktop product tables convert to cards on mobile; large Inventory, Activity
+  and Sales lists are paginated
+- The one-time workbook migration screen is removed from product navigation and
+  its legacy route returns to Inventory
+- Verified locally with lint, TypeScript, 67 tests, production build, browser
+  journeys and desktop/mobile width checks
+
 ## M0 — Engineering foundation — Complete
 
-- Authentication, MFA and individual roles
+- Private email/password authentication, revocable sessions and individual roles
 - PostgreSQL migrations and restricted runtime identity
 - Versioned API, atomic transactions, idempotency and audit events
 - Local lint, type, unit, production-build and authenticated acceptance checks
@@ -26,6 +51,8 @@ Complete:
 - Owner-direct below-floor sale with mandatory controlled reason
 - Customer master with normalized-phone duplicate prevention and name/phone lookup
 - Sale-linked customer snapshot and purchase history summary
+- Dedicated customer workspace with name, phone and locality search, derived
+  Retail/Wholesale buying pattern, lifetime totals and sale-by-sale purchase history
 - ₹5,000 customer-information prompt enforced by the server
 - Customer-declined Guest flow with exact-cart owner approval, 30-minute expiry,
   one-time consumption and recorded refusal without invented customer data
@@ -48,6 +75,8 @@ Complete:
 - Multi-line supplier receipt completed atomically across every included SKU
 - Reusable supplier master with controlled add-and-select workflow
 - Possible duplicate supplier bill warning with explicit checked acknowledgement
+- Compact three-step receiving workspace for supplier bill, delivered products
+  and one final stock confirmation, with a responsive mobile entry sequence
 - Condition-separated sellable, open-box and damaged receipt balances and
   movements; ordinary sales consume sellable stock only
 - Owner-only new-product setup with generated immutable SKU/internal barcode,
@@ -63,6 +92,8 @@ Complete:
 - Mandatory controlled change reason, immutable before/after audit evidence and
   automatic expiry of pending approvals tied to the replaced price version
 - Product-level movement history with sale, receipt and adjustment references
+- Selectable SKU label export with product name, barcode, variant, MRP, selling
+  price and rack in a safe CSV for external label software
 - Current-balance versus append-only-ledger reconciliation by stock condition
 - Trusted-operator and owner physical counts captured against the exact recorded
   balance version, with no stock effect while approval is pending
@@ -95,6 +126,9 @@ Complete:
   explanations for cash movements or any variance
 - Immutable, idempotent closing records and linked correction revisions
 - Automatic `Needs reconciliation` status when sales complete after a closing
+- Owner-only business insights with today and month-to-date performance,
+  same-period month comparison, honest YoY availability, six-month sales trend,
+  Retail/Wholesale contribution, top sellers and 60-day slow-stock review
 
 ## M3.5 — Railway deployment readiness — Complete
 
@@ -160,7 +194,7 @@ opening movements or customer/sale import.
 ## M6 — Railway staging validation — Next safety gate
 
 The application can now be deployed safely with synthetic staging data. Private
-database connectivity, WorkOS callback, owner access, latency, PITR restore and
+database connectivity, internal owner login, latency, PITR restore and
 seven-day cost evidence must still pass before real business data are considered.
 
 ## Later phase

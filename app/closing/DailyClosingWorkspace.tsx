@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import AppShell from "@/components/AppShell";
+import CustomSelect from "@/components/ui/CustomSelect";
+import PageHeader from "@/components/ui/PageHeader";
 
 type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER";
 type DigitalPaymentMode = Exclude<PaymentMode, "CASH">;
@@ -240,34 +243,14 @@ export default function DailyClosingWorkspace({
   const shownClosing = receipt ?? previous;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          <Link href="/dashboard">Home</Link>
-          <Link href="/">Sell</Link>
-          <Link href="/receive">Receive</Link>
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-        </nav>
-        <span className="role-chip">Business owner</span>
-      </header>
-
+    <AppShell displayName={displayName} role="BUSINESS_OWNER">
       <section className="sell-page closing-page" aria-labelledby="closing-heading">
-        <div className="page-heading">
-          <p className="eyebrow">
-            Daily closing · {initialClosing.current.businessDate}
-          </p>
-          <h1 id="closing-heading">Close with evidence.</h1>
-          <p>
-            Compare recorded sales with the cash actually counted and digital
-            payments independently verified. The application never treats cash
-            sales as the drawer balance.
-          </p>
-        </div>
+        <PageHeader
+          eyebrow={`Daily closing · ${initialClosing.current.businessDate}`}
+          headingId="closing-heading"
+          title="Close the day"
+          description="Verify cash and digital payments against recorded sales before closing."
+        />
 
         {initialClosing.status === "NEEDS_RECONCILIATION" && !receipt && (
           <div className="closing-alert danger" role="alert">
@@ -526,17 +509,17 @@ export default function DailyClosingWorkspace({
                 <div className="closing-fields two">
                   <label>
                     Correction reason
-                    <select
-                      aria-label="Correction reason"
+                    <CustomSelect
                       value={correctionReason}
-                      onChange={(event) =>
-                        setCorrectionReason(event.target.value as CorrectionReason)}
-                    >
-                      <option value="LATE_SALES">Sales completed after closing</option>
-                      <option value="COUNT_CORRECTION">Cash count correction</option>
-                      <option value="PAYMENT_CORRECTION">Payment verification correction</option>
-                      <option value="OTHER">Other controlled correction</option>
-                    </select>
+                      ariaLabel="Correction reason"
+                      onChange={(value) => setCorrectionReason(value as CorrectionReason)}
+                      options={[
+                        { value: "LATE_SALES", label: "Sales completed after closing" },
+                        { value: "COUNT_CORRECTION", label: "Cash count correction" },
+                        { value: "PAYMENT_CORRECTION", label: "Payment verification correction" },
+                        { value: "OTHER", label: "Other controlled correction" },
+                      ]}
+                    />
                   </label>
                   <label>
                     Why is a new revision needed?
@@ -586,6 +569,6 @@ export default function DailyClosingWorkspace({
           </section>
         )}
       </section>
-    </main>
+    </AppShell>
   );
 }

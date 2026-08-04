@@ -65,6 +65,45 @@ a:focus-visible {
   line-height: 1.65;
 }
 
+.auth-form {
+  display: grid;
+  gap: 18px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-weight: 750;
+}
+
+.auth-form input {
+  min-height: 52px;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 0 14px;
+  background: white;
+  color: #17243a;
+}
+
+.auth-error {
+  margin: 0 0 20px;
+  border: 1px solid #efb4b4;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff1f1;
+  color: #9f1d1d;
+  line-height: 1.45;
+}
+
+.auth-help {
+  margin: 20px 0 0;
+  color: #667085;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .status {
   display: flex;
   gap: 10px;

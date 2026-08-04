@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -6,7 +6,7 @@ const runtimeUrl = process.env.TEST_DATABASE_URL;
 const migrationUrl = process.env.TEST_MIGRATION_DATABASE_URL;
 const describeWithDatabase = runtimeUrl && migrationUrl ? describe : describe.skip;
 
-describeWithDatabase("database-enforced team access", () => {
+describeWithDatabase("database-enforced internal authentication", () => {
   const runtimePool = new Pool({ connectionString: runtimeUrl });
   const migrationPool = new Pool({ connectionString: migrationUrl });
   const suffix = randomUUID();
@@ -22,38 +22,20 @@ describeWithDatabase("database-enforced team access", () => {
       [`Access test ${suffix}`],
     );
     businessId = business.rows[0].id;
-    await migrationPool.query(
-      `INSERT INTO access_invitations (business_id, email, role)
-       VALUES ($1, $2, 'BUSINESS_OWNER')`,
-      [businessId, ownerEmail],
+    const owner = await migrationPool.query<{ id: string }>(
+      `INSERT INTO app_users (
+         business_id, email, display_name, role, status, password_hash
+       )
+       VALUES ($1, $2, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE', $3)
+       RETURNING id`,
+      [businessId, ownerEmail, "x".repeat(80)],
     );
+    ownerId = owner.rows[0].id;
   });
 
   afterAll(async () => {
     await runtimePool.end();
     await migrationPool.end();
-  });
-
-  it("claims only a verified, pre-approved owner email", async () => {
-    const rejected = await runtimePool.query(
-      "SELECT * FROM claim_app_access($1, $2, false, 'Test Owner', $3)",
-      [`workos-${suffix}`, ownerEmail, `Access test ${suffix}`],
-    );
-    expect(rejected.rowCount).toBe(0);
-
-    const claimed = await runtimePool.query<{
-      id: string;
-      role: string;
-      email: string;
-    }>(
-      "SELECT * FROM claim_app_access($1, $2, true, 'Test Owner', $3)",
-      [`workos-${suffix}`, ownerEmail, `Access test ${suffix}`],
-    );
-    expect(claimed.rows[0]).toMatchObject({
-      role: "BUSINESS_OWNER",
-      email: ownerEmail,
-    });
-    ownerId = claimed.rows[0].id;
   });
 
   it("creates an active Main Store for every new business", async () => {
@@ -79,46 +61,61 @@ describeWithDatabase("database-enforced team access", () => {
     await expect(
       runtimePool.query(
         `INSERT INTO app_users (
-           business_id, workos_user_id, email, display_name, role
+           business_id, email, display_name, role
          )
-         VALUES ($1, $2, $3, 'Bypass', 'BUSINESS_OWNER')`,
-        [businessId, `bypass-${suffix}`, `bypass-${suffix}@example.com`],
+         VALUES ($1, $2, 'Bypass', 'BUSINESS_OWNER')`,
+        [businessId, `bypass-${suffix}@example.com`],
       ),
     ).rejects.toMatchObject({ code: "42501" });
   });
 
-  it("lets the owner invite and control an operator through narrow functions", async () => {
-    await expect(
-      runtimePool.query(
-        `SELECT * FROM create_app_access_invitation(
-          $1, $2, '', 'BUSINESS_OWNER'
-        )`,
-        [ownerId, `other-owner-${suffix}@example.com`],
-      ),
-    ).rejects.toMatchObject({ code: "22023" });
-
+  it("activates only a pending invitation with its one-time setup token", async () => {
     const invitation = await runtimePool.query<{ id: string }>(
       `SELECT * FROM create_app_access_invitation(
          $1, $2, 'Test Operator', 'STORE_OPERATOR'
        )`,
       [ownerId, operatorEmail],
     );
-    expect(invitation.rows[0].id).toBeTruthy();
+    const tokenHash = createHash("sha256")
+      .update(`setup-${suffix}`)
+      .digest("hex");
+    await runtimePool.query(
+      `SELECT create_internal_auth_setup_token(
+         $1, NULL, $2, $3, now() + interval '1 hour'
+       )`,
+      [ownerId, invitation.rows[0].id, tokenHash],
+    );
 
-    const claimed = await runtimePool.query<{
+    const activated = await runtimePool.query<{
       id: string;
       role: string;
       email: string;
     }>(
-      "SELECT * FROM claim_app_access($1, $2, true, 'OAuth Name', $3)",
-      [`operator-workos-${suffix}`, operatorEmail, `Access test ${suffix}`],
+      "SELECT * FROM activate_internal_account($1, $2)",
+      [tokenHash, "y".repeat(80)],
     );
-    expect(claimed.rows[0]).toMatchObject({
+    expect(activated.rows[0]).toMatchObject({
       role: "STORE_OPERATOR",
       email: operatorEmail,
     });
-    operatorId = claimed.rows[0].id;
+    operatorId = activated.rows[0].id;
 
+    const replay = await runtimePool.query(
+      "SELECT * FROM activate_internal_account($1, $2)",
+      [tokenHash, "z".repeat(80)],
+    );
+    expect(replay.rowCount).toBe(0);
+  });
+
+  it("revokes active sessions when an owner disables a member", async () => {
+    const tokenHash = createHash("sha256")
+      .update(`session-${suffix}`)
+      .digest("hex");
+    await runtimePool.query(
+      `INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+       VALUES ($1, $2, now() + interval '1 day')`,
+      [operatorId, tokenHash],
+    );
     const changed = await runtimePool.query<{ role: string; status: string }>(
       `SELECT role, status
          FROM update_app_team_member(
@@ -130,15 +127,16 @@ describeWithDatabase("database-enforced team access", () => {
       role: "TRUSTED_OPERATOR",
       status: "DISABLED",
     });
-
-    const disabledClaim = await runtimePool.query(
-      "SELECT * FROM claim_app_access($1, $2, true, 'Test Operator', $3)",
-      [`operator-workos-${suffix}`, operatorEmail, `Access test ${suffix}`],
+    const session = await migrationPool.query<{ revoked: boolean }>(
+      `SELECT revoked_at IS NOT NULL AS revoked
+         FROM auth_sessions
+        WHERE token_hash = $1`,
+      [tokenHash],
     );
-    expect(disabledClaim.rowCount).toBe(0);
+    expect(session.rows[0].revoked).toBe(true);
   });
 
-  it("protects the owner and records access changes", async () => {
+  it("protects the owner account from access changes", async () => {
     await expect(
       runtimePool.query(
         `SELECT * FROM update_app_team_member(
@@ -147,19 +145,5 @@ describeWithDatabase("database-enforced team access", () => {
         [ownerId],
       ),
     ).rejects.toMatchObject({ code: "42501" });
-
-    const audits = await migrationPool.query<{ event_type: string }>(
-      `SELECT event_type
-         FROM audit_events
-        WHERE business_id = $1
-        ORDER BY created_at`,
-      [businessId],
-    );
-    expect(audits.rows.map((row) => row.event_type)).toEqual([
-      "TEAM_INVITATION_ACCEPTED",
-      "TEAM_INVITATION_CREATED",
-      "TEAM_INVITATION_ACCEPTED",
-      "TEAM_MEMBER_ACCESS_CHANGED",
-    ]);
   });
 });

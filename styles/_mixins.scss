@@ -1,0 +1,58 @@
+@use "sass:map";
+
+// Keep responsive settings in this mixin-only module. Importing the token
+// stylesheet here would also emit its global `:root` rules inside CSS Modules.
+$breakpoints: (
+  mobile: 720px,
+  tablet: 1024px,
+  wide: 1440px,
+);
+
+@mixin below($name) {
+  @media (max-width: map.get($breakpoints, $name)) {
+    @content;
+  }
+}
+
+@mixin above($name) {
+  @media (min-width: calc(map.get($breakpoints, $name) + 0.02px)) {
+    @content;
+  }
+}
+
+@mixin surface($radius: var(--radius-lg)) {
+  border: 1px solid var(--border-subtle);
+  border-radius: $radius;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-xs);
+}
+
+@mixin focus-ring {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@mixin scrollbar {
+  scrollbar-color: var(--gray-300) transparent;
+  scrollbar-width: thin;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: var(--radius-full);
+    background: var(--gray-300);
+    background-clip: padding-box;
+  }
+}
+
+@mixin mobile-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-xs);
+}

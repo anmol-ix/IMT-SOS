@@ -7,11 +7,61 @@ import { requireRole } from "./auth/roles";
 import { getDatabase, inTransaction } from "./database";
 import { IdempotencyConflictError } from "./proof-command";
 import {
+  consumeFifoInventory,
+  consumeInventoryLots,
+  createAdjustmentInventoryLot,
+} from "./inventory-lots";
+import {
   calculateCountedInventoryValue,
   stockAdjustmentConflict,
   type StockAdjustmentReason,
   type StockCondition,
 } from "@/shared/stock-adjustment-policy";
+
+async function valueStockCount(
+  client: PoolClient,
+  input: {
+    businessId: string;
+    locationId: string;
+    variantId: string;
+    stockCondition: StockCondition;
+    currentQuantity: number;
+    currentValuePaise: bigint;
+    countedQuantity: number;
+    fallbackUnitCostPaise: bigint;
+  },
+) {
+  const quantityDelta = input.countedQuantity - input.currentQuantity;
+  if (input.stockCondition === "SELLABLE" && quantityDelta < 0) {
+    const fifo = await consumeFifoInventory(client, {
+      businessId: input.businessId,
+      locationId: input.locationId,
+      variantId: input.variantId,
+      quantityOnHand: input.currentQuantity,
+      inventoryValuePaise: Number(input.currentValuePaise),
+      quantity: -quantityDelta,
+    });
+    const removedValuePaise = BigInt(fifo.totalCostPaise);
+    return {
+      nextValuePaise: input.currentValuePaise - removedValuePaise,
+      valueDeltaPaise: -removedValuePaise,
+      appliedUnitCostPaise:
+        (removedValuePaise + BigInt(-quantityDelta) / 2n)
+        / BigInt(-quantityDelta),
+      fifoAllocations: fifo.allocations,
+    };
+  }
+
+  return {
+    ...calculateCountedInventoryValue({
+      currentQuantity: input.currentQuantity,
+      currentValuePaise: input.currentValuePaise,
+      countedQuantity: input.countedQuantity,
+      fallbackUnitCostPaise: input.fallbackUnitCostPaise,
+    }),
+    fifoAllocations: [],
+  };
+}
 
 export type RequestStockAdjustmentInput = {
   variantId: string;
@@ -270,7 +320,11 @@ export async function requestStockAdjustment(
 
     let valuation;
     try {
-      valuation = calculateCountedInventoryValue({
+      valuation = await valueStockCount(client, {
+        businessId: user.businessId,
+        locationId: balance.locationId,
+        variantId: input.variantId,
+        stockCondition: input.stockCondition,
         currentQuantity: balance.quantity,
         currentValuePaise: balance.valuePaise,
         countedQuantity: input.countedQuantity,
@@ -442,7 +496,11 @@ export async function decideStockAdjustment(
 
       let valuation;
       try {
-        valuation = calculateCountedInventoryValue({
+        valuation = await valueStockCount(client, {
+          businessId: user.businessId,
+          locationId: balance.locationId,
+          variantId: adjustment.variant_id,
+          stockCondition: adjustment.stock_condition,
           currentQuantity: balance.quantity,
           currentValuePaise: balance.valuePaise,
           countedQuantity: adjustment.counted_quantity,
@@ -453,6 +511,8 @@ export async function decideStockAdjustment(
           error instanceof Error ? error.message : undefined,
         );
       }
+      const quantityDelta =
+        adjustment.counted_quantity - adjustment.recorded_quantity;
 
       if (adjustment.stock_condition === "SELLABLE") {
         await client.query(
@@ -467,6 +527,18 @@ export async function decideStockAdjustment(
             adjustment.variant_id,
           ],
         );
+        if (quantityDelta < 0) {
+          await consumeInventoryLots(client, valuation.fifoAllocations);
+        } else if (quantityDelta > 0) {
+          await createAdjustmentInventoryLot(client, {
+            businessId: user.businessId,
+            locationId: balance.locationId,
+            variantId: adjustment.variant_id,
+            adjustmentId: adjustment.id,
+            quantity: quantityDelta,
+            unitCostPaise: Number(valuation.appliedUnitCostPaise),
+          });
+        }
       } else if (balance.exists) {
         await client.query(
           `UPDATE inventory_condition_balances
@@ -498,8 +570,6 @@ export async function decideStockAdjustment(
         );
       }
 
-      const quantityDelta =
-        adjustment.counted_quantity - adjustment.recorded_quantity;
       await client.query(
         `INSERT INTO inventory_movements
           (business_id, location_id, variant_id, movement_type,

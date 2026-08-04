@@ -19,6 +19,7 @@ export type UpdateProductInput = {
   rackLocation: string;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   ownerFloorPaise: number;
   trustedOperatorFloorPaise: number;
   storeOperatorFloorPaise: number;
@@ -38,6 +39,7 @@ export type UpdatedProduct = {
   damagedStock: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
   ownerFloorPaise: number;
   trustedOperatorFloorPaise: number;
   storeOperatorFloorPaise: number;
@@ -57,6 +59,7 @@ export type UpdateProductResult = {
     rackLocation: string;
     mrpPaise: number;
     standardPricePaise: number;
+    wholesalePricePaise: number;
     ownerFloorPaise: number;
     trustedOperatorFloorPaise: number;
     storeOperatorFloorPaise: number;
@@ -82,6 +85,7 @@ type ProductRow = {
   purchase_price_paise: string;
   mrp_paise: string;
   standard_price_paise: string;
+  wholesale_price_paise: string;
   owner_floor_paise: string;
   trusted_operator_floor_paise: string;
   store_operator_floor_paise: string;
@@ -131,11 +135,12 @@ function validateInput(input: UpdateProductInput, replacementCostPaise: number) 
     replacementCostPaise,
     input.standardPricePaise,
     input.mrpPaise,
+    input.wholesalePricePaise,
   );
   if (pricingConflict) throw new InvalidProductChangeError(pricingConflict);
   const floorConflict = priceFloorConflict(
     replacementCostPaise,
-    input.standardPricePaise,
+    input.wholesalePricePaise,
     {
       ownerFloorPaise: input.ownerFloorPaise,
       trustedOperatorFloorPaise: input.trustedOperatorFloorPaise,
@@ -161,6 +166,7 @@ function productView(row: ProductRow, input: UpdateProductInput): UpdatedProduct
     damagedStock: row.damaged_quantity,
     mrpPaise: input.mrpPaise,
     standardPricePaise: input.standardPricePaise,
+    wholesalePricePaise: input.wholesalePricePaise,
     ownerFloorPaise: input.ownerFloorPaise,
     trustedOperatorFloorPaise: input.trustedOperatorFloorPaise,
     storeOperatorFloorPaise: input.storeOperatorFloorPaise,
@@ -218,7 +224,8 @@ export async function updateProduct(
          COALESCE(conditions.open_box_quantity, 0)::int AS open_box_quantity,
          COALESCE(conditions.damaged_quantity, 0)::int AS damaged_quantity,
          pv.id AS price_version_id, pv.purchase_price_paise, pv.mrp_paise,
-         pv.standard_price_paise, pv.owner_floor_paise,
+         pv.standard_price_paise, pv.wholesale_price_paise,
+         pv.owner_floor_paise,
          pv.trusted_operator_floor_paise, pv.store_operator_floor_paise
        FROM product_variants v
        JOIN products p ON p.id = v.product_id
@@ -258,6 +265,7 @@ export async function updateProduct(
     const priceChanged =
       Number(row.mrp_paise) !== input.mrpPaise ||
       Number(row.standard_price_paise) !== input.standardPricePaise ||
+      Number(row.wholesale_price_paise) !== input.wholesalePricePaise ||
       Number(row.owner_floor_paise) !== input.ownerFloorPaise ||
       Number(row.trusted_operator_floor_paise) !==
         input.trustedOperatorFloorPaise ||
@@ -283,15 +291,17 @@ export async function updateProduct(
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO price_versions
            (variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+            wholesale_price_paise,
             owner_floor_paise, trusted_operator_floor_paise,
             store_operator_floor_paise, effective_from, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id`,
         [
           variantId,
           row.latest_landed_cost_paise,
           input.mrpPaise,
           input.standardPricePaise,
+          input.wholesalePricePaise,
           input.ownerFloorPaise,
           input.trustedOperatorFloorPaise,
           input.storeOperatorFloorPaise,
@@ -325,6 +335,7 @@ export async function updateProduct(
       rackLocation: row.rack_location,
       mrpPaise: Number(row.mrp_paise),
       standardPricePaise: Number(row.standard_price_paise),
+      wholesalePricePaise: Number(row.wholesale_price_paise),
       ownerFloorPaise: Number(row.owner_floor_paise),
       trustedOperatorFloorPaise: Number(row.trusted_operator_floor_paise),
       storeOperatorFloorPaise: Number(row.store_operator_floor_paise),
@@ -387,6 +398,7 @@ export async function updateProduct(
             rackLocation: input.rackLocation,
             mrpPaise: input.mrpPaise,
             standardPricePaise: input.standardPricePaise,
+            wholesalePricePaise: input.wholesalePricePaise,
             ownerFloorPaise: input.ownerFloorPaise,
             trustedOperatorFloorPaise: input.trustedOperatorFloorPaise,
             storeOperatorFloorPaise: input.storeOperatorFloorPaise,

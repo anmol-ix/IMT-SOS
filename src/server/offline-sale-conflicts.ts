@@ -275,12 +275,11 @@ export async function resolveOfflineSaleConflict(
   const operator = await getDatabase().query<{
     id: string;
     business_id: string;
-    workos_user_id: string;
     email: string | null;
     display_name: string;
     role: CurrentUser["role"];
   }>(
-    `SELECT id, business_id, workos_user_id, email, display_name, role
+    `SELECT id, business_id, email, display_name, role
        FROM app_users
       WHERE id = $1 AND business_id = $2 AND status IN ('ACTIVE', 'DISABLED')`,
     [row.operator_user_id, owner.businessId],
@@ -289,7 +288,6 @@ export async function resolveOfflineSaleConflict(
   const originalActor: CurrentUser = {
     id: operator.rows[0].id,
     businessId: operator.rows[0].business_id,
-    workosUserId: operator.rows[0].workos_user_id,
     email: operator.rows[0].email,
     displayName: operator.rows[0].display_name,
     role: operator.rows[0].role,

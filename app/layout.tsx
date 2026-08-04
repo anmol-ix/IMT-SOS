@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { AuthKitProvider } from "@workos-inc/authkit-nextjs/components";
 import PwaControls from "./PwaControls";
-import "./globals.css";
+import "./globals.scss";
 
 export const metadata: Metadata = {
   title: "ItsMyToy Operations",
@@ -27,17 +26,15 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#16324f",
+  themeColor: "#493274",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body>
-        <AuthKitProvider>
-          {children}
-          <PwaControls />
-        </AuthKitProvider>
+        {children}
+        <PwaControls />
       </body>
     </html>
   );

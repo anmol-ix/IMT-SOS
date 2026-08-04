@@ -5,8 +5,8 @@ This repository contains the production-shaped foundation and first local sellin
 The current increment proves:
 
 - one responsive Next.js/TypeScript application and versioned `/api/v1` boundary;
-- hosted WorkOS sign-in with application-controlled roles;
-- automatic first-owner activation from one configured verified email;
+- private email/password sign-in with application-controlled roles;
+- memory-hard password hashing, database-backed revocable sessions and login lockout;
 - owner-managed staff invitations, role changes and access removal without database access;
 - owner-managed device approval and revocation, with automatic owner-device enrollment;
 - a restricted PostgreSQL runtime identity separate from schema migration access;
@@ -41,7 +41,9 @@ The current increment proves:
 - owner-only daily closing that separates cash sales from physical drawer cash, independently verifies digital payments, requires explanations for movements or variances, and preserves corrections as linked immutable revisions;
 - Railway deployment configuration.
 
-It does **not** yet implement purchase-order creation, open-box selling, stock-condition transfers, offline sync, statutory billing, wholesale workflows or workbook import.
+It does **not** yet implement purchase-order creation, open-box selling,
+stock-condition transfers, statutory billing, wholesale workflows or the
+approved transfer of validated workbook rows into live operational tables.
 
 ## Local verification
 
@@ -57,25 +59,26 @@ npm run test:e2e
 npm run test:local-operations
 ```
 
-`db:seed-demo` creates three clearly synthetic products for local use. `test:local-operations` creates a temporary dummy user, supplier and product; proves camera barcode lookup, role-safe activity history, controlled sale, customer, payment, receipt-sharing, condition-separated multi-line receipt drafting, owner-only generated-SKU product setup, alternate-barcode lookup, duplicate-bill protection, owner completion, versioned existing-product repricing, stale-approval expiry, rack changes without stock movement, trusted physical counting, stale-count blocking, owner adjustment approval, ledger reconciliation, per-SKU reorder configuration, operator denial, invalid-target rejection, unchanged stock/ledger, payment and seller summaries, replenishment deep-linking, first daily close, identical retry, post-closing sale detection and an immutable reconciliation revision; then removes all synthetic records and restores the unused SKU sequence.
+`db:seed-demo` creates three clearly synthetic products for local use.
+`test:local-operations` runs the database integration suite against the explicit
+test URLs. It never targets production.
 
 Integration tests require `TEST_DATABASE_URL` for the restricted runtime role and `TEST_MIGRATION_DATABASE_URL` for test fixture setup. They are skipped when those explicit test URLs are absent; CI supplies both and uses real PostgreSQL 16.
 
 ## Safe initial access
 
-On a new installation, the first verified WorkOS user becomes the business
-owner automatically. This one-time claim is database-locked and recorded in
-the audit trail.
+There is no public registration. After the schema migration, a controlled
+administrator creates the first owner and a one-time password link:
 
 ```text
-BUSINESS_NAME=ItsMyToy
+APP_BASE_URL=http://127.0.0.1:4173 \
+npm run auth:create-setup-link -- owner@example.com
 ```
 
-After that first sign-in, unknown users cannot claim access. The owner uses
-**Team & Access** inside the application to invite a Google
-email as a store operator or trusted operator. WorkOS sends the invitation;
-the internal role activates automatically after the recipient accepts and
-signs in. Unknown emails see a clear access-not-approved screen.
+On an existing installation, omit the email to target the active owner, or
+pass an existing member email. The command prints a one-time link that expires
+after 24 hours. The owner uses **Team & Access** to create operator access and
+copy seven-day one-time setup links. Unknown emails cannot create accounts.
 
 Never expose `MIGRATION_DATABASE_URL` or `DATABASE_ADMIN_URL` to the browser.
 The runtime database identity cannot insert or update users directly; it can
@@ -85,7 +88,7 @@ Open `http://127.0.0.1:4173` after `npm run dev`. Business owners land on the lo
 
 ## Railway staging
 
-The Railway build does not require database or WorkOS secrets. Deployment does:
+The Railway build does not require database secrets. Deployment does:
 the pre-deploy phase validates its environment, optionally bootstraps the
 restricted PostgreSQL roles on the first deployment, and then applies migrations.
 The server listens on Railway's assigned `PORT`, and Railway will route traffic

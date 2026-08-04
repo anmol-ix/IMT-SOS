@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PAYMENT_MODES } from "@/server/payment-policy";
+import { DUE_REASONS, PAYMENT_MODES } from "@/server/payment-policy";
 import { PRICE_EXCEPTION_REASONS } from "@/server/sale-policy";
 
 export const saleLineSchema = z.object({
@@ -16,6 +16,7 @@ export const saleLineSchema = z.object({
 });
 
 export const saleRequestSchema = z.object({
+  saleType: z.enum(["RETAIL", "WHOLESALE"]).default("RETAIL"),
   lines: z.array(saleLineSchema).min(1).max(20).superRefine((lines, context) => {
     if (new Set(lines.map((line) => line.variantId)).size !== lines.length) {
       context.addIssue({ code: "custom", message: "Each product may appear only once." });
@@ -29,7 +30,6 @@ export const saleRequestSchema = z.object({
       paymentMode: z.enum(PAYMENT_MODES),
       amountPaise: z.number().int().positive().max(100_000_000),
     }))
-    .min(1)
     .max(2)
     .superRefine((payments, context) => {
       if (new Set(payments.map((payment) => payment.paymentMode)).size !== payments.length) {
@@ -39,6 +39,7 @@ export const saleRequestSchema = z.object({
         });
       }
     }),
+  dueReason: z.enum(DUE_REASONS).optional(),
   offline: z
     .object({
       schemaVersion: z.literal(1),
@@ -57,4 +58,4 @@ export const saleRequestSchema = z.object({
     .optional(),
 });
 
-export type SaleRequest = z.infer<typeof saleRequestSchema>;
+export type SaleRequest = z.input<typeof saleRequestSchema>;

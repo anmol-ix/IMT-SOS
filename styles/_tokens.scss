@@ -1,0 +1,103 @@
+$breakpoints: (
+  mobile: 720px,
+  tablet: 1024px,
+  wide: 1440px,
+);
+
+:root {
+  color-scheme: light;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --brand-25: #fbf9ff;
+  --brand-50: #f5f1fb;
+  --brand-100: #ebe3f7;
+  --brand-200: #d8c8ef;
+  --brand-300: #bca4e1;
+  --brand-400: #9c7bce;
+  --brand-500: #7957b4;
+  --brand-600: #6847a3;
+  --brand-700: #56398a;
+  --brand-800: #493274;
+  --brand-900: #3d2b60;
+
+  --accent-50: #fff7ed;
+  --accent-500: #ed762f;
+  --accent-600: #d75e1b;
+
+  --gray-0: #ffffff;
+  --gray-25: #fcfcfd;
+  --gray-50: #f8f9fb;
+  --gray-100: #f0f2f5;
+  --gray-150: #e9ecf0;
+  --gray-200: #dfe3e8;
+  --gray-300: #c8ced7;
+  --gray-400: #929baa;
+  --gray-500: #687385;
+  --gray-600: #4c5668;
+  --gray-700: #343d4d;
+  --gray-800: #222a37;
+  --gray-900: #151a23;
+
+  --success-50: #ecfdf3;
+  --success-100: #d1fadf;
+  --success-600: #039855;
+  --success-700: #027a48;
+  --warning-50: #fffaeb;
+  --warning-100: #fef0c7;
+  --warning-600: #dc6803;
+  --warning-700: #b54708;
+  --danger-50: #fff1f0;
+  --danger-100: #fee4e2;
+  --danger-600: #d92d20;
+  --danger-700: #b42318;
+  --info-50: #eff8ff;
+  --info-600: #1570ef;
+
+  --surface-app: #f4f5f7;
+  --surface-panel: #ffffff;
+  --surface-subtle: #f8f9fb;
+  --surface-raised: #ffffff;
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-tertiary: var(--gray-500);
+  --border-subtle: var(--gray-150);
+  --border-strong: var(--gray-300);
+  --focus-ring: rgba(104, 71, 163, 0.24);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --radius-xs: 0.375rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-full: 999px;
+
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 16px 48px rgba(16, 24, 40, 0.12);
+
+  --control-sm: 2.5rem;
+  --control-md: 2.75rem;
+  --control-lg: 3rem;
+  --sidebar-width: 14.5rem;
+  --sidebar-rail: 4.75rem;
+  --topbar-height: 3.75rem;
+  --mobile-nav-height: 4.25rem;
+  --content-max: 100rem;
+
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}

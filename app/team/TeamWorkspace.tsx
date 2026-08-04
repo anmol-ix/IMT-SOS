@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import CustomSelect from "@/components/ui/CustomSelect";
+import PageHeader from "@/components/ui/PageHeader";
 import type {
   AccessInvitation,
   TeamAccessView,
@@ -11,6 +13,7 @@ import type { AppDevice } from "@/server/devices";
 type Props = {
   initialTeam: TeamAccessView;
   initialDevices: AppDevice[];
+  mode?: "TEAM" | "INVITATIONS" | "DEVICES";
 };
 
 type ApiError = {
@@ -42,11 +45,11 @@ async function responseBody<T>(response: Response): Promise<T> {
   return body;
 }
 
-async function copySignInLink() {
-  await navigator.clipboard.writeText(`${window.location.origin}/sign-in`);
+async function copySetupLink(setupPath: string) {
+  await navigator.clipboard.writeText(`${window.location.origin}${setupPath}`);
 }
 
-export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
+export default function TeamWorkspace({ initialTeam, initialDevices, mode = "TEAM" }: Props) {
   const [members, setMembers] = useState(initialTeam.members);
   const [invitations, setInvitations] = useState(initialTeam.invitations);
   const [devices, setDevices] = useState(initialDevices);
@@ -57,6 +60,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [latestSetupPath, setLatestSetupPath] = useState("");
 
   async function invite(event: FormEvent) {
     event.preventDefault();
@@ -75,11 +79,8 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
       setEmail("");
       setDisplayName("");
       setRole("STORE_OPERATOR");
-      setMessage(
-        body.invitation.deliveryStatus === "SENT"
-          ? `Invitation sent to ${body.invitation.email}.`
-          : `${body.invitation.email} is pre-approved. Email delivery needs attention.`,
-      );
+      setLatestSetupPath(body.invitation.setupPath ?? "");
+      setMessage(`Setup link created for ${body.invitation.email}. Copy and share it privately.`);
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Invitation failed.");
     } finally {
@@ -116,10 +117,28 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             item.id === invitation.id ? body.invitation! : item
           )
         );
-        setMessage(`Invitation email sent again to ${invitation.email}.`);
+        setLatestSetupPath(body.invitation.setupPath ?? "");
+        setMessage(`A new setup link was created for ${invitation.email}.`);
       }
     } catch (currentError) {
       setError(currentError instanceof Error ? currentError.message : "Action failed.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function createPasswordSetup(member: TeamMember) {
+    setBusyId(member.id);
+    setMessage("");
+    setError("");
+    try {
+      const body = await responseBody<{ setupPath: string }>(
+        await fetch(`/api/v1/team/members/${member.id}`, { method: "POST" }),
+      );
+      setLatestSetupPath(body.setupPath);
+      setMessage(`A new password setup link was created for ${member.displayName}.`);
+    } catch (currentError) {
+      setError(currentError instanceof Error ? currentError.message : "Link creation failed.");
     } finally {
       setBusyId("");
     }
@@ -185,22 +204,36 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
 
   return (
     <section className="sell-page team-page" aria-labelledby="team-access-heading">
-      <div className="page-heading">
-        <p className="eyebrow">Owner control</p>
-        <h1 id="team-access-heading">Team &amp; Access</h1>
-        <p>
-          Invite the exact Google email a person will use. Their account activates
-          automatically after the invitation is accepted and they sign in.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        headingId="team-access-heading"
+        title={mode === "INVITATIONS" ? "Invitations" : mode === "DEVICES" ? "Devices" : "Team"}
+        description={mode === "INVITATIONS"
+          ? "Create and manage private setup links for new team members."
+          : mode === "DEVICES"
+            ? "Approve or revoke browsers that may use bounded offline selling."
+            : "Manage who can use the app and what each person is allowed to do."}
+      />
 
       {(message || error) && (
         <div className={error ? "team-notice error" : "team-notice"} role="status">
           {error || message}
+          {latestSetupPath && !error && (
+            <button
+              type="button"
+              onClick={() => {
+                copySetupLink(latestSetupPath)
+                  .then(() => setMessage("Setup link copied."))
+                  .catch(() => setError("Could not copy the setup link."));
+              }}
+            >
+              Copy setup link
+            </button>
+          )}
         </div>
       )}
 
-      <section className="team-section invite-panel" aria-labelledby="invite-heading">
+      {mode === "INVITATIONS" && <section className="team-section invite-panel" aria-labelledby="invite-heading">
         <div className="team-section-heading">
           <div>
             <p className="eyebrow">New access</p>
@@ -210,7 +243,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
         </div>
         <form className="team-invite-form" onSubmit={invite}>
           <label>
-            Google email
+            Email
             <input
               type="email"
               value={email}
@@ -230,18 +263,18 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
           </label>
           <label>
             Access level
-            <select
+            <CustomSelect
               value={role}
-              onChange={(event) =>
-                setRole(event.target.value as AccessInvitation["role"])
-              }
-            >
-              <option value="STORE_OPERATOR">Store operator</option>
-              <option value="TRUSTED_OPERATOR">Trusted operator</option>
-            </select>
+              ariaLabel="Access level"
+              options={[
+                { value: "STORE_OPERATOR", label: "Store operator" },
+                { value: "TRUSTED_OPERATOR", label: "Trusted operator" },
+              ]}
+              onChange={(value) => setRole(value as AccessInvitation["role"])}
+            />
           </label>
           <button className="button" disabled={submitting}>
-            {submitting ? "Sending…" : "Send invitation"}
+            {submitting ? "Creating…" : "Create access link"}
           </button>
         </form>
         <div className="role-explainer">
@@ -254,9 +287,9 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             Store access plus receiving stock and wider operational actions.
           </span>
         </div>
-      </section>
+      </section>}
 
-      {invitations.length > 0 && (
+      {mode === "INVITATIONS" && invitations.length > 0 && (
         <section className="team-section" aria-labelledby="pending-heading">
           <div className="team-section-heading">
             <div>
@@ -278,32 +311,36 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
                 </div>
                 <span
                   className={
-                    invitation.deliveryStatus === "SENT"
+                    invitation.deliveryStatus === "SETUP_LINK_READY"
                       ? "access-pill active"
                       : "access-pill waiting"
                   }
                 >
-                  {invitation.deliveryStatus === "SENT"
-                    ? "Email sent"
-                    : "Email needs attention"}
+                  {invitation.deliveryStatus === "SETUP_LINK_READY"
+                    ? "Link ready"
+                    : "Setup pending"}
                 </span>
                 <div className="team-actions">
                   <button
                     type="button"
                     onClick={() => {
-                      copySignInLink()
-                        .then(() => setMessage("Sign-in link copied."))
-                        .catch(() => setError("Could not copy the sign-in link."));
+                      if (invitation.setupPath) {
+                        copySetupLink(invitation.setupPath)
+                          .then(() => setMessage("Setup link copied."))
+                          .catch(() => setError("Could not copy the setup link."));
+                      } else {
+                        invitationAction(invitation, "RESEND");
+                      }
                     }}
                   >
-                    Copy link
+                    {invitation.setupPath ? "Copy link" : "Create link"}
                   </button>
                   <button
                     type="button"
                     disabled={busyId === invitation.id}
                     onClick={() => invitationAction(invitation, "RESEND")}
                   >
-                    Send again
+                    Replace link
                   </button>
                   <button
                     className="danger-link"
@@ -320,7 +357,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
         </section>
       )}
 
-      <section className="team-section" aria-labelledby="members-heading">
+      {mode === "TEAM" && <section className="team-section" aria-labelledby="members-heading">
         <div className="team-section-heading">
           <div>
             <p className="eyebrow">Current access</p>
@@ -343,22 +380,31 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
                 ) : (
                   <label className="inline-access-field">
                     <span>Role</span>
-                    <select
+                    <CustomSelect
                       value={member.role}
+                      ariaLabel={`Role for ${member.displayName}`}
                       disabled={busyId === member.id}
-                      onChange={(event) =>
+                      options={[
+                        { value: "STORE_OPERATOR", label: "Store operator" },
+                        { value: "TRUSTED_OPERATOR", label: "Trusted operator" },
+                      ]}
+                      onChange={(value) =>
                         updateMember(member, {
-                          role: event.target.value,
+                          role: value,
                           status: member.status,
                         })
                       }
-                    >
-                      <option value="STORE_OPERATOR">Store operator</option>
-                      <option value="TRUSTED_OPERATOR">Trusted operator</option>
-                    </select>
+                    />
                   </label>
                 )}
                 <div className="team-actions">
+                  <button
+                    type="button"
+                    disabled={busyId === member.id}
+                    onClick={() => createPasswordSetup(member)}
+                  >
+                    {member.passwordConfigured ? "Reset password" : "Set password"}
+                  </button>
                   {isOwner ? (
                     <span className="owner-protected">Protected account</span>
                   ) : (
@@ -381,9 +427,9 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             );
           })}
         </div>
-      </section>
+      </section>}
 
-      <section className="team-section" aria-labelledby="devices-heading">
+      {mode === "DEVICES" && <section className="team-section" aria-labelledby="devices-heading">
         <div className="team-section-heading">
           <div>
             <p className="eyebrow">Offline control</p>
@@ -447,7 +493,7 @@ export default function TeamWorkspace({ initialTeam, initialDevices }: Props) {
             Devices appear here after a team member opens the Sell screen online.
           </p>
         )}
-      </section>
+      </section>}
     </section>
   );
 }

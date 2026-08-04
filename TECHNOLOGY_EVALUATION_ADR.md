@@ -3,12 +3,18 @@
 ## Framework, Identity and Hosting Evaluation
 
 **ADR:** ADR-008  
-**Version:** 1.0  
-**Date:** 21 July 2026  
-**Status:** Accepted and locked by the business owner on 21 July 2026  
+**Version:** 1.1
+**Date:** 30 July 2026
+**Status:** Superseded for identity on 29 July 2026; other technology decisions remain active
 **Companion documents:** `PHASE_1_PRODUCT_BLUEPRINT.md`, `BUSINESS_DECISIONS.md`, `ENGINEERING_FOUNDATION_SPEC.md`
 
 ---
+
+> **Identity decision update (29 July 2026):** WorkOS AuthKit was removed. This
+> internal business tool now uses private email/password authentication,
+> Node.js `scrypt`, single-use owner-issued setup links and database-backed
+> revocable sessions. The current decision and operating guidance below now
+> reflect that replacement.
 
 ## 1. Decision in one page
 
@@ -22,8 +28,8 @@ Use the following production foundation:
 | Backend application | Versioned HTTP/JSON API route handlers and server use cases in Next.js, organized as a modular monolith |
 | Database | **PostgreSQL on Railway Pro** |
 | Database access | Server-only access using `pg`; versioned SQL migrations; no browser-to-database connection |
-| Identity | Managed **WorkOS AuthKit** hosted sign-in |
-| Authentication protection | TOTP multi-factor authentication, secure server sessions, session revocation and recent-authentication checks for sensitive owner actions |
+| Identity | Private application-managed email/password accounts; no public registration |
+| Authentication protection | `scrypt` password hashing, opaque database-backed sessions, login lockout, one-time setup links and owner-controlled revocation |
 | Hosting | Existing **Railway Pro** workspace |
 | Production region | Railway Southeast Asia Metal, Singapore, for both application and PostgreSQL |
 | Object storage | Not introduced in the walking skeleton; select S3-compatible managed storage only when product photos enter scope |
@@ -83,7 +89,7 @@ Each option was evaluated against:
 - mobile PWA support and camera-based scanning compatibility;
 - one-codebase simplicity for an AI coding agent and future human maintainer;
 - explicit PostgreSQL transactions, constraints and row locks;
-- managed authentication with MFA, session revocation and step-up authentication;
+- private internal authentication, session revocation and login-abuse protection;
 - managed PostgreSQL backup and point-in-time recovery;
 - predictable monthly cost;
 - operational effort for a small business without an infrastructure team;
@@ -106,7 +112,8 @@ Why it fits:
 - one language and one repository cover phone, MacBook and server work;
 - Next.js has an official App Router PWA guide covering the web manifest, service worker, installation, notifications and security headers;
 - server code can hold PostgreSQL transactions and omit sensitive fields before a response is created;
-- WorkOS provides an official Next.js SDK with secure session handling and recent-authentication checks;
+- Next.js route handlers keep authentication and authorization inside the same
+  server boundary as the business operations;
 - the app can run as an always-on Node.js service on Railway, avoiding production cold starts and keeping PostgreSQL pooling conventional;
 - PWA installation avoids maintaining separate iOS, Android and macOS applications in Phase 1.
 
@@ -148,48 +155,32 @@ Java is not selected. A separate Java service would introduce a second language,
 
 ---
 
-## 6. Identity-provider evaluation
+## 6. Internal identity decision
 
-Custom password storage was excluded before scoring. Authentication is a security-sensitive commodity and BD-16 requires a managed identity service.
+This application is a private internal business tool with a small, known team.
+It therefore uses the narrowest application-managed identity model that meets
+the current boundary:
 
-| Provider | Relevant strengths | Relevant limitations | Cost considered | Outcome |
-|---|---|---|---:|---|
-| **WorkOS AuthKit** | Hosted sign-in; TOTP MFA; passkeys; active-session details and revocation; `auth_time`/`max_age` step-up authentication; official Next.js SDK; separate staging and production environments | MFA is simplest when required broadly; a custom AuthKit domain is a separately priced add-on; passkeys are domain-bound | AuthKit is listed as free for up to 1 million active users; custom domain excluded | **Selected** |
-| **Clerk Pro** | Polished components; MFA; passkeys; custom session lifetime; device/session controls; official Next.js integration | Production MFA is a Pro feature and adds recurring cost | $25 monthly or $20/month billed annually at review time | Good fallback |
-| **Auth0 Essentials** | Mature hosted identity; passwordless options; Pro MFA; production-oriented controls | Higher baseline price and more configuration than this internal application needs | $35/month for the reviewed Essentials tier | Rejected on cost/fit |
+1. No public registration exists.
+2. Every person has an individual email/password account and one application role.
+3. Passwords use Node.js `scrypt` with a unique random salt.
+4. Login creates a random opaque session cookie; PostgreSQL stores only its
+   SHA-256 digest and supports expiry and revocation.
+5. Five failed attempts lock an account for 15 minutes without revealing
+   whether an email exists.
+6. Owners issue single-use, expiring setup links for first access or password
+   replacement.
+7. Role changes and account disablement remain database-authorized and audited;
+   disabling a person revokes active sessions.
+8. `BUSINESS_OWNER`, `TRUSTED_OPERATOR` and `STORE_OPERATOR` authority remains
+   in the application database.
+9. Offline owner overrides remain prohibited.
+10. Passkeys or multi-factor authentication are deferred until the team or
+    exposure boundary expands and evidence justifies the added complexity.
 
-### Identity decision
-
-Select WorkOS AuthKit with the following rules:
-
-1. Use hosted AuthKit UI rather than building a custom sign-in screen.
-2. Create separate WorkOS staging and production environments from the start.
-3. Disable unrestricted application access. A WorkOS identity becomes an application user only after an owner invitation or approved internal-user record exists.
-4. Map the external WorkOS user ID to the application’s internal `app_user` row.
-5. Keep `BUSINESS_OWNER`, `TRUSTED_OPERATOR` and `STORE_OPERATOR` authority in the application database. Identity-provider roles may mirror them for convenience but are not the sole authorization source.
-6. Require TOTP MFA for production accounts initially. This is stronger and simpler than creating a custom owner-only MFA flow for a team of only a few internal users.
-7. Use secure, HttpOnly session cookies through the official server SDK.
-8. Record provider session ID/device metadata needed for audit and revocation, without copying authentication secrets.
-9. Require authentication within the previous five minutes for user/role changes, completed-sale cancellation, below-cost approval, data export and destructive security actions.
-10. Allow owners to revoke sessions/devices.
-11. Do not enable production passkeys until the permanent authentication domain is decided. Passkeys are bound to their domain; enabling them and later changing domain creates avoidable re-enrolment.
-12. Never use the identity provider’s availability as permission to complete an offline owner override. Accepted BD-10 still prohibits offline owner override.
-
-### Identity acceptance test before feature work
-
-The walking skeleton must prove all of the following against WorkOS staging:
-
-- invited user sign-in;
-- MFA enrolment and challenge;
-- valid session refresh;
-- invalid or revoked session rejection;
-- internal-role lookup;
-- operator denial from an owner-only endpoint;
-- recent-authentication enforcement for a sensitive action;
-- session revocation from an owner flow;
-- provider outage/failure returns a safe error and does not bypass authorization.
-
-If any mandatory item cannot be proven with the supported WorkOS plan or SDK, stop and switch ADR-008 to Clerk Pro rather than writing custom authentication.
+The acceptance proof covers activation, valid and invalid password login,
+lockout, session lookup, logout/revocation, owner-only authorization and
+operator denial. Production activation remains a separate deployment step.
 
 ---
 
@@ -236,18 +227,19 @@ Railway Node.js/Next.js service
       v
 Railway PostgreSQL
 
-Authentication redirects/session verification -> WorkOS AuthKit
+Authentication/session verification -> application server + PostgreSQL
 ```
 
 Deployment environments:
 
 | Environment | Application | Database | Identity | Data rule |
 |---|---|---|---|---|
-| Development | Local Node process | Local PostgreSQL | WorkOS staging | Synthetic or sanitized data only |
-| Staging | Separate Railway environment/service | Separate non-production PostgreSQL | WorkOS staging | Synthetic migration rehearsal data |
-| Production | Railway Pro, Singapore, always on | Railway PostgreSQL, Singapore | WorkOS production | Real business data |
+| Development | Local Node process | Local PostgreSQL | Local internal accounts | Synthetic, imported review or sanitized data only |
+| Staging | Separate Railway environment/service | Separate non-production PostgreSQL | Separate internal accounts | Synthetic migration rehearsal data |
+| Production | Railway Pro, Singapore, always on | Railway PostgreSQL, Singapore | Production-only internal accounts | Real business data |
 
-Staging and production must not share database credentials, cookie secrets, identity secrets or callback URLs.
+Development, staging and production must not share database credentials,
+session records, setup links or user accounts.
 
 ---
 
@@ -261,7 +253,6 @@ Staging and production must not share database credentials, cookie secrets, iden
 | Node.js application | Metered CPU and memory usage |
 | PostgreSQL | Metered CPU, memory and volume usage |
 | PITR archive bucket | Metered stored data; restore egress is free |
-| WorkOS AuthKit | $0 at ItsMyToy’s expected user count |
 | **Fixed minimum already owned** | **$20/month before taxes** |
 
 Using a budgeting rate of ₹90 per US dollar, not a currency quote, the Railway Pro minimum is approximately **₹1,800/month before taxes**. Actual resource usage above the included credits is variable and must not be guessed before a measured deployment.
@@ -275,7 +266,6 @@ Production serverless sleeping is disabled. Cost savings must not introduce cold
 Excluded from the baseline:
 
 - annual domain registration;
-- optional custom WorkOS authentication domain;
 - product-image storage and delivery;
 - WhatsApp/SMS messaging;
 - payment processing;
@@ -359,7 +349,7 @@ Do not mock PostgreSQL transaction behaviour in tests that claim to prove stock 
 
 ## 12. Security and secret management
 
-- Store secrets only in local ignored environment files or Railway/WorkOS secret settings.
+- Store secrets only in local ignored environment files or Railway secret settings.
 - Never commit secrets, database URLs, provider keys or real customer exports.
 - Use HTTPS only and secure cookie settings.
 - Apply authorization inside server use cases and again at sensitive data-query boundaries.
@@ -400,7 +390,7 @@ Vendor exit must remain practical:
 - PostgreSQL schema and migrations stay in the repository;
 - use standard SQL and documented PostgreSQL features;
 - take periodic logical exports in addition to provider recovery;
-- map WorkOS IDs through internal users so identity providers can be replaced without rewriting sale/audit ownership;
+- keep sale and audit ownership attached to stable internal user IDs;
 - do not place pricing or stock truth in provider-specific identity metadata;
 - keep file storage behind an application interface when introduced;
 - keep the application deployable as a conventional Node service or container;
@@ -410,7 +400,8 @@ Expected exits:
 
 - Railway PostgreSQL -> another managed PostgreSQL service via dump/restore or replication plan;
 - Railway Node.js service -> another conventional Node/container host;
-- WorkOS -> Clerk/Auth0/another OIDC provider by remapping internal users and replacing the session adapter.
+- internal authentication -> a managed identity provider later through a
+  controlled user-mapping and session migration if the access boundary expands.
 
 ---
 
@@ -440,10 +431,10 @@ Each deferred choice receives its own short decision only when a committed featu
 
 | Risk | Control |
 |---|---|
-| WorkOS pricing/features change | Recheck before launch; internal-user mapping and standards-based sessions preserve a Clerk fallback |
-| Hosted authentication outage | Fail closed for privileged actions; existing offline policy permits no offline owner override |
-| MFA is inconvenient for operators | Long-enough secure sessions plus 12-hour enrolled-device offline grace; measure real sign-in friction before weakening security |
-| Passkeys tied to temporary provider domain | Defer production passkey enrolment until permanent authentication-domain decision |
+| Password guessing | Generic errors, `scrypt`, five-attempt lockout and security-event review |
+| Lost authenticated device | Server session revocation, account disablement and controlled device revocation |
+| Password recovery is abused | Owner-issued single-use setup links with short expiry and session revocation |
+| Stronger authentication becomes necessary | Add passkeys or MFA only after a security review defines the new access boundary |
 | Railway usage cost grows unexpectedly | Soft alerts, monthly review and measured resource limits; never use a low hard limit that can stop production |
 | Singapore network path is slow from the shop | Local-first catalogue, delta sync and latency tests on shop Wi-Fi/Airtel/Jio before cutover |
 | Railway PITR restoration requires manual cutover | Tested restore runbook, isolated validation and rehearsed connection swap |
@@ -462,7 +453,7 @@ The first implementation increment is production-shaped but deliberately small. 
 2. one deployable Next.js application;
 3. health endpoint and structured redacted logging;
 4. PostgreSQL connection, migration command and separate runtime/migration roles;
-5. WorkOS staging authentication;
+5. private internal authentication with one-time activation and revocable sessions;
 6. internal user mapping and three accepted roles;
 7. one owner-only endpoint plus a proven operator denial;
 8. one trivial transactional table write with an idempotency key;
@@ -484,7 +475,8 @@ ADR-008 was accepted and locked by Anmol on 21 July 2026. The approved bundle is
 - Next.js + TypeScript modular monolith;
 - Node.js Active LTS backend runtime;
 - PWA delivery rather than separate native apps in Phase 1;
-- WorkOS AuthKit with TOTP MFA and recent-auth checks;
+- private application-managed email/password authentication with `scrypt`,
+  login lockout, one-time setup links and revocable sessions;
 - existing Railway Pro workspace with the Node.js application and PostgreSQL colocated in Singapore;
 - Railway private networking, scheduled backups and PostgreSQL PITR;
 - explicit SQL/transactional PostgreSQL foundation;
@@ -498,15 +490,7 @@ Any change to one component should state which constraint is improved and which 
 ## 19. Official sources reviewed
 
 - Next.js PWA guide: <https://nextjs.org/docs/app/guides/progressive-web-apps>
-- WorkOS pricing: <https://workos.com/pricing>
-- WorkOS AuthKit MFA: <https://workos.com/docs/authkit/mfa>
-- WorkOS AuthKit passkeys: <https://workos.com/docs/authkit/passkeys>
-- WorkOS reauthentication: <https://workos.com/docs/authkit/reauthentication>
-- WorkOS session API: <https://workos.com/docs/reference/authkit/session>
-- WorkOS Next.js SDK: <https://workos.com/docs/sdks/authkit-nextjs>
-- WorkOS environments: <https://workos.com/docs/authkit/environments>
-- Clerk pricing: <https://clerk.com/pricing>
-- Auth0 pricing: <https://auth0.com/pricing>
+- Node.js crypto API: <https://nodejs.org/api/crypto.html>
 - Railway pricing: <https://railway.com/pricing>
 - Railway regions: <https://docs.railway.com/deployments/regions>
 - Railway private networking: <https://docs.railway.com/private-networking>

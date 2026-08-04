@@ -21,11 +21,11 @@ describeWithDatabase("offline catalogue database query", () => {
     businessId = business.rows[0].id;
     const user = await migrationPool.query<{ id: string }>(
       `INSERT INTO app_users (
-         business_id, workos_user_id, display_name, role, status
+         business_id, display_name, role, status
        )
-       VALUES ($1, $2, 'Catalogue Owner', 'BUSINESS_OWNER', 'ACTIVE')
+       VALUES ($1, 'Catalogue Owner', 'BUSINESS_OWNER', 'ACTIVE')
        RETURNING id`,
-      [businessId, `catalogue-${suffix}`],
+      [businessId],
     );
     const location = await migrationPool.query<{ id: string }>(
       `INSERT INTO locations (business_id, name)
@@ -52,10 +52,11 @@ describeWithDatabase("offline catalogue database query", () => {
     await migrationPool.query(
       `INSERT INTO price_versions (
          variant_id, purchase_price_paise, mrp_paise, standard_price_paise,
+         wholesale_price_paise,
          owner_floor_paise, trusted_operator_floor_paise,
          store_operator_floor_paise, effective_from, created_by
        )
-       VALUES ($1, 40000, 90000, 80000, 60000, 68000, 72000, now(), $2)`,
+       VALUES ($1, 40000, 90000, 80000, 80000, 60000, 68000, 72000, now(), $2)`,
       [variant.rows[0].id, user.rows[0].id],
     );
     await migrationPool.query(
@@ -76,7 +77,8 @@ describeWithDatabase("offline catalogue database query", () => {
   it("returns every barcode while keeping operator-only pricing", async () => {
     const result = await runtimePool.query<{
       barcodes: string[];
-      minimum_price_paise: string;
+      suggested_minimum_price_paise: string;
+      pricing_cost_paise: string;
       inventory_value_paise: string | null;
     }>(
       SELLABLE_PRODUCTS_SQL,
@@ -87,7 +89,18 @@ describeWithDatabase("offline catalogue database query", () => {
       `PRIMARY-${suffix}`,
       `SUPPLIER-${suffix}`,
     ]);
-    expect(result.rows[0].minimum_price_paise).toBe("72000");
+    expect(result.rows[0].suggested_minimum_price_paise).toBe("72000");
+    expect(result.rows[0].pricing_cost_paise).toBe("40000");
     expect(result.rows[0].inventory_value_paise).toBeNull();
+  });
+
+  it("finds a product from a partial SKU while the operator is typing", async () => {
+    const result = await runtimePool.query<{ sku: string }>(
+      SELLABLE_PRODUCTS_SQL,
+      [businessId, "STORE_OPERATOR", `IMT-OFFLINE-${suffix.slice(0, 8)}`, 12],
+    );
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].sku).toBe(`IMT-OFFLINE-${suffix}`);
   });
 });

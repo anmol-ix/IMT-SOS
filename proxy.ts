@@ -1,14 +1,23 @@
-import { authkitProxy } from "@workos-inc/authkit-nextjs";
-import type { NextFetchEvent, NextRequest } from "next/server";
-import { getWorkOSRedirectUri } from "@/server/auth/workos-config";
+import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE_NAME } from "@/shared/auth";
 
-let authkitHandler: ReturnType<typeof authkitProxy> | undefined;
+export default function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  const isPublic =
+    pathname === "/sign-in"
+    || pathname === "/activate"
+    || pathname.startsWith("/api/v1/auth/")
+    || pathname.startsWith("/api/v1/health/");
+  const isPage = !pathname.startsWith("/api/");
 
-export default function proxy(request: NextRequest, event: NextFetchEvent) {
-  authkitHandler ??= authkitProxy({
-    redirectUri: getWorkOSRedirectUri(),
-  });
-  return authkitHandler(request, event);
+  if (isPage && !isPublic && !request.cookies.has(SESSION_COOKIE_NAME)) {
+    const signIn = request.nextUrl.clone();
+    signIn.pathname = "/sign-in";
+    signIn.search = "";
+    signIn.searchParams.set("returnTo", `${pathname}${search}`);
+    return NextResponse.redirect(signIn);
+  }
+  return NextResponse.next();
 }
 
 export const config = {

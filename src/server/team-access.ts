@@ -1,9 +1,8 @@
 import "server-only";
 
-import { WorkOS } from "@workos-inc/node";
-import { z } from "zod";
 import { getDatabase } from "@/server/database";
 import type { CurrentUser } from "@/server/auth/current-user";
+import { createOpaqueToken, hashOpaqueToken } from "@/server/auth/password";
 import { requireRole } from "@/server/auth/roles";
 import {
   requireValidInvitation,
@@ -18,6 +17,7 @@ export type TeamMember = {
   displayName: string;
   role: "BUSINESS_OWNER" | InvitableRole;
   status: "ACTIVE" | "DISABLED";
+  passwordConfigured: boolean;
   createdAt: string;
 };
 
@@ -26,7 +26,8 @@ export type AccessInvitation = {
   email: string;
   displayName: string | null;
   role: InvitableRole;
-  deliveryStatus: "SENT" | "NEEDS_ATTENTION";
+  deliveryStatus: "SETUP_LINK_REQUIRED" | "SETUP_LINK_READY";
+  setupPath?: string;
   createdAt: string;
 };
 
@@ -45,48 +46,44 @@ class TeamAccessConflictError extends Error {
   }
 }
 
-class InvitationDeliveryError extends Error {
-  readonly status = 502;
-  readonly code = "INVITATION_DELIVERY_FAILED";
-
-  constructor() {
-    super(
-      "Access is pre-approved, but the invitation email could not be sent. Try sending it again.",
-    );
-    this.name = "InvitationDeliveryError";
-  }
-}
-
 type InvitationRow = {
   id: string;
   email: string;
   display_name: string | null;
   role: InvitableRole;
-  workos_invitation_id: string | null;
   created_at: Date;
 };
 
-let workosClient: WorkOS | undefined;
-
-function getWorkOSClient(): WorkOS {
-  if (workosClient) return workosClient;
-  const config = z.object({
-    WORKOS_API_KEY: z.string().trim().min(1),
-    WORKOS_CLIENT_ID: z.string().trim().min(1),
-  }).parse(process.env);
-  workosClient = new WorkOS(config.WORKOS_API_KEY, {
-    clientId: config.WORKOS_CLIENT_ID,
-  });
-  return workosClient;
+async function createSetupPath(
+  actor: CurrentUser,
+  target: { userId?: string; invitationId?: string },
+): Promise<string> {
+  const token = createOpaqueToken();
+  await getDatabase().query(
+    `SELECT create_internal_auth_setup_token(
+       $1, $2, $3, $4, now() + interval '7 days'
+     )`,
+    [
+      actor.id,
+      target.userId ?? null,
+      target.invitationId ?? null,
+      hashOpaqueToken(token),
+    ],
+  );
+  return `/activate?token=${encodeURIComponent(token)}`;
 }
 
-function invitationFromRow(row: InvitationRow): AccessInvitation {
+function invitationFromRow(
+  row: InvitationRow,
+  setupPath?: string,
+): AccessInvitation {
   return {
     id: row.id,
     email: row.email,
     displayName: row.display_name,
     role: row.role,
-    deliveryStatus: row.workos_invitation_id ? "SENT" : "NEEDS_ATTENTION",
+    deliveryStatus: setupPath ? "SETUP_LINK_READY" : "SETUP_LINK_REQUIRED",
+    setupPath,
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -102,9 +99,11 @@ export async function listTeamAccess(
       display_name: string;
       role: TeamMember["role"];
       status: TeamMember["status"];
+      password_configured: boolean;
       created_at: Date;
     }>(
-      `SELECT id, email, display_name, role, status, created_at
+      `SELECT id, email, display_name, role, status,
+              password_hash IS NOT NULL AS password_configured, created_at
          FROM app_users
         WHERE business_id = $1
           AND status IN ('ACTIVE', 'DISABLED')
@@ -114,7 +113,7 @@ export async function listTeamAccess(
       [actor.businessId],
     ),
     getDatabase().query<InvitationRow>(
-      `SELECT id, email, display_name, role, workos_invitation_id, created_at
+      `SELECT id, email, display_name, role, created_at
          FROM access_invitations
         WHERE business_id = $1 AND status = 'PENDING'
         ORDER BY created_at DESC`,
@@ -129,9 +128,10 @@ export async function listTeamAccess(
       displayName: row.display_name,
       role: row.role,
       status: row.status,
+      passwordConfigured: row.password_configured,
       createdAt: row.created_at.toISOString(),
     })),
-    invitations: invitations.rows.map(invitationFromRow),
+    invitations: invitations.rows.map((row) => invitationFromRow(row)),
   };
 }
 
@@ -166,24 +166,8 @@ export async function inviteTeamMember(
     [actor.id, valid.email, valid.displayName, valid.role],
   );
   const row = created.rows[0];
-
-  try {
-    const workosInvitation = await getWorkOSClient().userManagement.sendInvitation({
-      email: valid.email,
-      expiresInDays: 7,
-      inviterUserId: actor.workosUserId,
-    });
-    await getDatabase().query(
-      "SELECT attach_workos_invitation($1, $2, $3)",
-      [actor.id, row.id, workosInvitation.id],
-    );
-    row.workos_invitation_id = workosInvitation.id;
-  } catch {
-    // The database approval intentionally remains pending so the owner can retry
-    // delivery without recreating or manually provisioning access.
-  }
-
-  return invitationFromRow(row);
+  const setupPath = await createSetupPath(actor, { invitationId: row.id });
+  return invitationFromRow(row, setupPath);
 }
 
 export async function resendTeamInvitation(
@@ -192,7 +176,7 @@ export async function resendTeamInvitation(
 ): Promise<AccessInvitation> {
   requireRole(actor.role, ["BUSINESS_OWNER"]);
   const result = await getDatabase().query<InvitationRow>(
-    `SELECT id, email, display_name, role, workos_invitation_id, created_at
+    `SELECT id, email, display_name, role, created_at
        FROM access_invitations
       WHERE id = $1 AND business_id = $2 AND status = 'PENDING'`,
     [invitationId, actor.businessId],
@@ -202,25 +186,8 @@ export async function resendTeamInvitation(
     throw new TeamAccessConflictError("This invitation is no longer pending.");
   }
 
-  try {
-    const invitation = row.workos_invitation_id
-      ? await getWorkOSClient().userManagement.resendInvitation(
-          row.workos_invitation_id,
-        )
-      : await getWorkOSClient().userManagement.sendInvitation({
-          email: row.email,
-          expiresInDays: 7,
-          inviterUserId: actor.workosUserId,
-        });
-    await getDatabase().query(
-      "SELECT attach_workos_invitation($1, $2, $3)",
-      [actor.id, row.id, invitation.id],
-    );
-    row.workos_invitation_id = invitation.id;
-    return invitationFromRow(row);
-  } catch {
-    throw new InvitationDeliveryError();
-  }
+  const setupPath = await createSetupPath(actor, { invitationId: row.id });
+  return invitationFromRow(row, setupPath);
 }
 
 export async function revokeTeamInvitation(
@@ -228,27 +195,16 @@ export async function revokeTeamInvitation(
   invitationId: string,
 ): Promise<void> {
   requireRole(actor.role, ["BUSINESS_OWNER"]);
-  const result = await getDatabase().query<{ workos_invitation_id: string | null }>(
-    `SELECT workos_invitation_id
+  const result = await getDatabase().query(
+    `SELECT 1
        FROM access_invitations
       WHERE id = $1 AND business_id = $2 AND status = 'PENDING'`,
     [invitationId, actor.businessId],
   );
-  const row = result.rows[0];
-  if (!row) {
+  if (!result.rowCount) {
     throw new TeamAccessConflictError("This invitation is no longer pending.");
   }
 
-  if (row.workos_invitation_id) {
-    try {
-      await getWorkOSClient().userManagement.revokeInvitation(
-        row.workos_invitation_id,
-      );
-    } catch {
-      // App access is still revoked below. A stale WorkOS invitation cannot
-      // claim access because the database invitation is no longer pending.
-    }
-  }
   await getDatabase().query(
     "SELECT revoke_app_access_invitation($1, $2, 'OWNER_REVOKED')",
     [actor.id, invitationId],
@@ -268,9 +224,11 @@ export async function changeTeamMemberAccess(
     display_name: string;
     role: InvitableRole;
     status: TeamMemberStatus;
+    password_configured: boolean;
     created_at: Date;
   }>(
-    `SELECT id, email, display_name, role, status, created_at
+    `SELECT id, email, display_name, role, status,
+            password_hash IS NOT NULL AS password_configured, created_at
        FROM update_app_team_member($1, $2, $3, $4)`,
     [actor.id, memberId, valid.role, valid.status],
   );
@@ -281,6 +239,23 @@ export async function changeTeamMemberAccess(
     displayName: row.display_name,
     role: row.role,
     status: row.status,
+    passwordConfigured: row.password_configured,
     createdAt: row.created_at.toISOString(),
   };
+}
+
+export async function createMemberPasswordSetup(
+  actor: CurrentUser,
+  memberId: string,
+): Promise<{ setupPath: string }> {
+  requireRole(actor.role, ["BUSINESS_OWNER"]);
+  const target = await getDatabase().query(
+    `SELECT 1
+       FROM app_users
+      WHERE id = $1
+        AND business_id = $2`,
+    [memberId, actor.businessId],
+  );
+  if (!target.rowCount) throw new TeamAccessConflictError("Team member not found.");
+  return { setupPath: await createSetupPath(actor, { userId: memberId }) };
 }

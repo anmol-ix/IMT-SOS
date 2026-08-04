@@ -1,23 +1,27 @@
 # Walking-Skeleton Evidence
 
-Evidence date: 22 July 2026
+Evidence date: 30 July 2026
 
 ## Passed locally
 
 - Node.js 22.17 and PostgreSQL 16 were used.
 - Lint and strict TypeScript checks passed.
 - The optimized Next.js production build passed.
-- Nine unit tests passed, including role denial, exceptional-price policy and controlled-reason validation.
+- Fifty-nine unit tests passed, including password authentication, role denial,
+  exceptional-price policy and controlled-reason validation.
 - The initial migration succeeded on an empty real PostgreSQL database.
-- Three real-PostgreSQL integration tests passed.
+- Twenty-one real-PostgreSQL integration tests passed in the isolated
+  `itsmytoy_test` database.
 - Ten concurrent executions with one idempotency key produced one stored command and one identical result.
 - Reuse of that key with changed request content returned an idempotency conflict.
 - The restricted runtime role could read approved user mappings and insert proof commands, but could not change users, commands, inventory movements or audit events.
-- The Pixel 7 Playwright smoke test passed for the application shell, liveness response and request-ID header.
-- WorkOS staging Google sign-in, required MFA enrolment/challenge, session revocation and fresh sign-in passed.
-- The real owner session mapped to `BUSINESS_OWNER` and received HTTP 200 from the owner-only endpoint.
-- A temporary synthetic user completed required MFA, mapped to `STORE_OPERATOR`, received HTTP 200 from `/api/v1/me`, and received HTTP 403 `FORBIDDEN` from `/api/v1/owner/proof`.
-- The synthetic WorkOS user and local `app_users` row were removed after the proof; both cleanup checks returned zero remaining synthetic users.
+- The optimized production build passed with all internal-authentication routes.
+- A production-style Playwright flow used an isolated test owner to complete a
+  one-time setup link, receive a database session, open the authenticated sale
+  workspace, sign out and sign back in with email/password.
+- The browser proof found and verified a fix that keeps authentication redirects
+  on the exact incoming browser origin, preserving host-scoped session cookies.
+- The readiness endpoint returned HTTP 200 against the disposable test database.
 - Three synthetic products were seeded for local testing without importing or changing the business workbook.
 - A temporary `STORE_OPERATOR` built and completed a two-product cart at role-permitted prices.
 - Both sale lines, the combined payment, both stock movements, costing and audit details committed in one database transaction.
@@ -50,6 +54,8 @@ Evidence date: 22 July 2026
 
 These are external deployment gates, not blockers for local product development. They must pass before the app is hosted for operational use or trusted with real business data.
 
-The repeatable local operations check is `npm run test:local-operations`. It creates only a temporary synthetic staging identity and always attempts cleanup. The older `test:local-sale` and `security:prove-operator-denial` aliases run the same proof for compatibility.
-
-Set `CAPTURE_UI=1` when running the proof to refresh the ignored screenshots in `output/playwright/`.
+The repeatable local operations check is `npm run test:local-operations`. It
+runs the PostgreSQL integration suite only when explicit `TEST_DATABASE_URL`
+and `TEST_MIGRATION_DATABASE_URL` values are supplied. Those values must point
+to a disposable test database, never the imported review or production
+database. The `test:local-sale` alias runs the same suite for compatibility.

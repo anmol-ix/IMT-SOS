@@ -11,6 +11,7 @@ export type OfflineCatalogProduct = {
   mrpPaise: number;
   standardPricePaise: number;
   minimumPricePaise: number;
+  suggestedMinimumPricePaise?: number;
 };
 
 export type OfflineCatalogSnapshot = {
@@ -34,6 +35,8 @@ export function toOfflineCatalogProduct(
     mrpPaise: product.mrpPaise,
     standardPricePaise: product.standardPricePaise,
     minimumPricePaise: product.minimumPricePaise,
+    suggestedMinimumPricePaise:
+      product.suggestedMinimumPricePaise ?? product.minimumPricePaise,
   };
 }
 

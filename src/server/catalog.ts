@@ -6,11 +6,20 @@ import type {
   OfflineCatalogSnapshot,
 } from "@/shared/offline-catalog";
 import { toOfflineCatalogProduct } from "@/shared/offline-catalog";
+import { minimumGrowthPrice } from "@/shared/product-setup-policy";
+import { applyMarkup } from "@/shared/fifo-inventory";
+
+export type WholesaleFifoLot = {
+  quantity: number;
+  unitCostPaise: number;
+  suggestedUnitPricePaise: number;
+};
 
 export type SellableProduct = {
   id: string;
   priceVersionId: string;
   name: string;
+  category: string | null;
   variantName: string | null;
   sku: string;
   barcode: string;
@@ -21,20 +30,29 @@ export type SellableProduct = {
   damagedStock?: number;
   mrpPaise: number;
   standardPricePaise: number;
+  wholesalePricePaise: number;
+  wholesaleFifoLots: WholesaleFifoLot[];
   minimumPricePaise: number;
+  suggestedMinimumPricePaise: number;
   ownerFloorPaise?: number;
   trustedOperatorFloorPaise?: number;
   storeOperatorFloorPaise?: number;
   inventoryValuePaise?: number;
   latestLandedCostPaise?: number;
   weightedAverageCostPaise?: number;
+  reorderPoint?: number | null;
+  restockTarget?: number | null;
 };
 
 export const SELLABLE_PRODUCTS_SQL = `
   SELECT
-    v.id, pv.id AS price_version_id, p.name, v.variant_name, v.sku, b.barcodes[1] AS barcode,
+    v.id, pv.id AS price_version_id, p.name, p.category, v.variant_name, v.sku,
+    b.barcodes[1] AS barcode,
     b.barcodes,
-    v.rack_location, ib.quantity_on_hand, pv.mrp_paise, pv.standard_price_paise,
+    v.rack_location, v.reorder_point, v.restock_target,
+    ib.quantity_on_hand, pv.mrp_paise, pv.standard_price_paise,
+    pv.wholesale_price_paise,
+    COALESCE(fifo.wholesale_fifo_lots, '[]'::jsonb) AS wholesale_fifo_lots,
     GREATEST(
       CASE $2
         WHEN 'BUSINESS_OWNER' THEN pv.owner_floor_paise
@@ -42,7 +60,8 @@ export const SELLABLE_PRODUCTS_SQL = `
         ELSE pv.store_operator_floor_paise
       END,
       ib.latest_landed_cost_paise
-    ) AS minimum_price_paise,
+    ) AS suggested_minimum_price_paise,
+    ib.latest_landed_cost_paise AS pricing_cost_paise,
     CASE WHEN $2 = 'BUSINESS_OWNER' THEN pv.owner_floor_paise END
       AS owner_floor_paise,
     CASE WHEN $2 = 'BUSINESS_OWNER' THEN pv.trusted_operator_floor_paise END
@@ -71,6 +90,21 @@ export const SELLABLE_PRODUCTS_SQL = `
     FROM inventory_condition_balances cb
     WHERE cb.location_id = ib.location_id AND cb.variant_id = v.id
   ) conditions ON true
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'quantity', lot.remaining_quantity,
+        'unitCostPaise', lot.unit_cost_paise,
+        'suggestedUnitPricePaise',
+          (lot.unit_cost_paise * 110 + 99) / 100
+      ) ORDER BY lot.received_at, lot.id
+    ) AS wholesale_fifo_lots
+    FROM inventory_lots lot
+    WHERE lot.business_id = p.business_id
+      AND lot.location_id = ib.location_id
+      AND lot.variant_id = v.id
+      AND lot.remaining_quantity > 0
+  ) fifo ON true
   JOIN LATERAL (
     SELECT array_agg(
       barcode_value ORDER BY is_primary DESC, created_at
@@ -83,12 +117,26 @@ export const SELLABLE_PRODUCTS_SQL = `
     AND v.status = 'ACTIVE'
     AND b.barcodes IS NOT NULL
     AND (
-      $3 = '' OR v.sku = $3 OR
-      EXISTS (SELECT 1 FROM barcodes bx WHERE bx.variant_id = v.id AND bx.barcode_value = $3) OR
+      $3 = '' OR v.sku ILIKE '%' || $3 || '%' OR
+      EXISTS (
+        SELECT 1 FROM barcodes bx
+        WHERE bx.variant_id = v.id
+          AND bx.barcode_value ILIKE '%' || $3 || '%'
+      ) OR
       p.name ILIKE '%' || $3 || '%' OR v.variant_name ILIKE '%' || $3 || '%'
     )
   ORDER BY
-    CASE WHEN v.sku = $3 OR $3 = ANY(b.barcodes) THEN 0 ELSE 1 END,
+    CASE
+      WHEN v.sku ILIKE $3 OR EXISTS (
+        SELECT 1 FROM barcodes bx
+        WHERE bx.variant_id = v.id AND bx.barcode_value ILIKE $3
+      ) THEN 0
+      WHEN v.sku ILIKE $3 || '%' OR EXISTS (
+        SELECT 1 FROM barcodes bx
+        WHERE bx.variant_id = v.id AND bx.barcode_value ILIKE $3 || '%'
+      ) THEN 1
+      ELSE 2
+    END,
     p.name, v.variant_name
   LIMIT $4
 `;
@@ -102,15 +150,21 @@ async function loadSellableProducts(
     id: string;
     price_version_id: string;
     name: string;
+    category: string | null;
     variant_name: string | null;
     sku: string;
     barcode: string;
     barcodes: string[];
     rack_location: string | null;
+    reorder_point: number | null;
+    restock_target: number | null;
     quantity_on_hand: number;
     mrp_paise: string;
     standard_price_paise: string;
-    minimum_price_paise: string;
+    wholesale_price_paise: string;
+    wholesale_fifo_lots: WholesaleFifoLot[];
+    suggested_minimum_price_paise: string;
+    pricing_cost_paise: string;
     owner_floor_paise: string | null;
     trusted_operator_floor_paise: string | null;
     store_operator_floor_paise: string | null;
@@ -127,11 +181,14 @@ async function loadSellableProducts(
     id: row.id,
     priceVersionId: row.price_version_id,
     name: row.name,
+    category: row.category,
     variantName: row.variant_name,
     sku: row.sku,
     barcode: row.barcode,
     barcodes: row.barcodes,
     rackLocation: row.rack_location,
+    reorderPoint: row.reorder_point,
+    restockTarget: row.restock_target,
     stock: row.quantity_on_hand,
     ...(row.open_box_quantity === null || row.damaged_quantity === null
       ? {}
@@ -141,7 +198,14 @@ async function loadSellableProducts(
         }),
     mrpPaise: Number(row.mrp_paise),
     standardPricePaise: Number(row.standard_price_paise),
-    minimumPricePaise: Number(row.minimum_price_paise),
+    wholesalePricePaise: row.wholesale_fifo_lots[0]?.suggestedUnitPricePaise
+      ?? applyMarkup(Number(row.pricing_cost_paise)),
+    wholesaleFifoLots: row.wholesale_fifo_lots,
+    minimumPricePaise: minimumGrowthPrice(Number(row.pricing_cost_paise)),
+    suggestedMinimumPricePaise: Math.max(
+      Number(row.suggested_minimum_price_paise),
+      minimumGrowthPrice(Number(row.pricing_cost_paise)),
+    ),
     ...(row.owner_floor_paise === null
       ? {}
       : {
@@ -167,6 +231,12 @@ export function searchSellableProducts(
   query: string,
 ): Promise<SellableProduct[]> {
   return loadSellableProducts(user, query, 12);
+}
+
+export function listInventoryProducts(
+  user: CurrentUser,
+): Promise<SellableProduct[]> {
+  return loadSellableProducts(user, "", 5_000);
 }
 
 export async function getOfflineCatalogSnapshot(

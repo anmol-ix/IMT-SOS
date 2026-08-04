@@ -1,7 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import AppShell from "@/components/AppShell";
+import CustomSelect from "@/components/ui/CustomSelect";
+import PageHeader from "@/components/ui/PageHeader";
 
 type Approval = {
   id: string;
@@ -82,6 +84,7 @@ type Props = {
   initialGuestApprovals: GuestApproval[];
   initialStockAdjustments: StockAdjustment[];
   initialOfflineSaleConflicts: OfflineSaleConflict[];
+  mode?: "OFFLINE" | "STOCK" | "GUEST" | "PRICE" | "ALL";
 };
 
 const reasons = [
@@ -120,6 +123,7 @@ export default function ApprovalsWorkspace({
   initialGuestApprovals,
   initialStockAdjustments,
   initialOfflineSaleConflicts,
+  mode = "ALL",
 }: Props) {
   const [approvals, setApprovals] = useState(initialApprovals);
   const [guestApprovals, setGuestApprovals] = useState(initialGuestApprovals);
@@ -314,39 +318,24 @@ export default function ApprovalsWorkspace({
   }
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="brand">ItsMyToy</p>
-          <p className="welcome">Hi, {displayName}</p>
-        </div>
-        <nav className="app-nav" aria-label="Operations">
-          <Link href="/dashboard">Home</Link>
-          <Link href="/">Sell</Link>
-          <Link href="/receive">Receive</Link>
-          <Link href="/inventory">Inventory</Link>
-          <Link href="/activity">Activity</Link>
-        </nav>
-        <span className="role-chip">Business owner</span>
-      </header>
-
+    <AppShell displayName={displayName} role="BUSINESS_OWNER">
       <section className="sell-page" aria-labelledby="approval-heading">
-        <div className="page-heading approval-heading">
-          <div>
-            <p className="eyebrow">Owner control</p>
-            <h1 id="approval-heading">Approvals</h1>
-            <p>
-              Review rejected offline sales, stock-count differences,
-              customer-declined Guest sales and lower-price exceptions.
-            </p>
-          </div>
-          <button type="button" className="refresh-button" onClick={refresh}>Refresh</button>
-        </div>
+        <PageHeader
+          eyebrow="Owner control"
+          headingId="approval-heading"
+          title="Approvals"
+          description="Review offline conflicts, stock differences and price exceptions."
+          actions={
+            <button type="button" className="refresh-button" onClick={refresh}>
+              Refresh
+            </button>
+          }
+        />
 
         {error && <p className="alert error" role="alert">{error}</p>}
         {message && <p className="alert success" role="status">{message}</p>}
 
-        <section className="approval-group" aria-labelledby="offline-approval-heading">
+        {(mode === "ALL" || mode === "OFFLINE") && <section className="approval-group" aria-labelledby="offline-approval-heading">
           <div className="section-title">
             <h2 id="offline-approval-heading">Rejected offline sales</h2>
             <span>{offlineSaleConflicts.length} waiting</span>
@@ -431,9 +420,9 @@ export default function ApprovalsWorkspace({
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="approval-group" aria-labelledby="stock-approval-heading">
+        {(mode === "ALL" || mode === "STOCK") && <section className="approval-group" aria-labelledby="stock-approval-heading">
           <div className="section-title">
             <h2 id="stock-approval-heading">Stock-count differences</h2>
             <span>{stockAdjustments.length} waiting</span>
@@ -528,9 +517,9 @@ export default function ApprovalsWorkspace({
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="approval-group" aria-labelledby="guest-approval-heading">
+        {(mode === "ALL" || mode === "GUEST") && <section className="approval-group" aria-labelledby="guest-approval-heading">
           <div className="section-title">
             <h2 id="guest-approval-heading">Customer-declined Guest sales</h2>
             <span>{guestApprovals.length} waiting</span>
@@ -599,9 +588,9 @@ export default function ApprovalsWorkspace({
               </article>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="approval-group" aria-labelledby="price-approval-heading">
+        {(mode === "ALL" || mode === "PRICE") && <section className="approval-group" aria-labelledby="price-approval-heading">
           <div className="section-title">
             <h2 id="price-approval-heading">Lower-price requests</h2>
             <span>{approvals.length} waiting</span>
@@ -642,9 +631,12 @@ export default function ApprovalsWorkspace({
 
                 <div className="form-row two-columns">
                   <label>Reason for approval
-                    <select value={reason} onChange={(event) => setReason(event.target.value)}>
-                      {reasons.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
+                    <CustomSelect
+                      value={reason}
+                      ariaLabel="Reason for approval"
+                      options={reasons.map(([value, label]) => ({ value, label }))}
+                      onChange={setReason}
+                    />
                   </label>
                   <label>{reason === "OTHER" ? "Required owner note" : "Optional owner note"}
                     <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} />
@@ -661,8 +653,8 @@ export default function ApprovalsWorkspace({
             );
           })}
         </div>
-        </section>
+        </section>}
       </section>
-    </main>
+    </AppShell>
   );
 }

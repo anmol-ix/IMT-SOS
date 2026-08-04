@@ -27,18 +27,7 @@ the business workbook or real customer information during this stage.
 The examples below assume the database service is named `Postgres`. If Railway
 shows a different service name, replace `Postgres` in every reference.
 
-## 2. Prepare WorkOS staging
-
-In the WorkOS staging application, add:
-
-```text
-https://<your-railway-domain>/auth/callback
-```
-
-Set the same application origin as the WorkOS default logout URI. Keep public
-self-sign-up disabled and keep MFA required.
-
-## 3. Generate database-role passwords
+## 2. Generate database-role passwords
 
 Generate two different hexadecimal secrets locally:
 
@@ -51,7 +40,7 @@ Use one for `itsmytoy_runtime` and the other for `itsmytoy_migrator`.
 Hexadecimal values are used so the passwords can be embedded in PostgreSQL URLs
 without URL-encoding mistakes.
 
-## 4. Add first-deployment variables
+## 3. Add first-deployment variables
 
 Add these variables to the Railway application service. Railway reference
 variables keep the database hostname and database name synchronized with the
@@ -61,11 +50,6 @@ PostgreSQL service.
 DATABASE_URL=postgresql://itsmytoy_runtime:<runtime-password>@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
 MIGRATION_DATABASE_URL=postgresql://itsmytoy_migrator:<migration-password>@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
 DATABASE_POOL_MAX=10
-
-WORKOS_API_KEY=<WorkOS-staging-API-key>
-WORKOS_CLIENT_ID=<WorkOS-staging-client-ID>
-WORKOS_COOKIE_PASSWORD=<at-least-32-random-characters>
-WORKOS_REDIRECT_URI=https://<your-railway-domain>/auth/callback
 
 BUSINESS_NAME=ItsMyToy
 
@@ -79,7 +63,7 @@ MIGRATION_DATABASE_PASSWORD=<migration-password>
 
 Do not commit any of these values to GitHub.
 
-## 5. Run the first deployment
+## 4. Run the first deployment
 
 Deploy the latest GitHub `main` branch. The expected sequence is:
 
@@ -92,6 +76,20 @@ Deploy the latest GitHub `main` branch. The expected sequence is:
 7. readiness check
 
 The deployment is accepted only when the readiness endpoint returns HTTP 200.
+
+## 5. Create the first password setup link
+
+For an existing database, create a setup link for an existing owner email. For
+an empty database, the same command creates the first owner. Run it from a
+controlled terminal while `DATABASE_ADMIN_URL` is still available:
+
+```text
+APP_BASE_URL=https://<your-railway-domain> \
+npm run auth:create-setup-link -- owner@example.com
+```
+
+Open the one-time link, choose a password of at least 12 characters and confirm
+the owner can sign in. The link expires after 24 hours and cannot be reused.
 
 ## 6. Remove administrative access
 
@@ -119,13 +117,11 @@ Both must return HTTP 200 and include an `x-request-id` response header.
 
 Then:
 
-1. On a new database, sign in with the intended owner account and complete MFA.
-2. Confirm that this first verified user automatically reaches the owner dashboard.
-3. Open **Team & Access** and invite a dummy store-operator email.
-4. Accept that invitation, sign in and confirm the operator can sell.
-5. Confirm that operator cannot access owner-only endpoints.
-6. Sign in with an uninvited dummy email and confirm the clear access-denied
-   screen appears.
+1. Sign in with the owner password and confirm the owner dashboard loads.
+2. Open **Team & Access** and create access for a dummy store operator.
+3. Copy the one-time setup link, choose a password and confirm the operator can sell.
+4. Confirm that operator cannot access owner-only endpoints.
+5. Confirm an unknown email receives the same generic invalid-login response.
 
 Do not treat a green deployment as permission to import real data. PITR restore,
 private-network evidence, latency measurement, owner/operator acceptance and the
@@ -143,5 +139,5 @@ workbook migration rehearsal remain separate gates.
   privileges.
 - Readiness HTTP 503: the application started, but its restricted runtime
   database URL is missing, invalid or unreachable.
-- WorkOS redirect error: the Railway callback URL does not exactly match both
-  the Railway variable and the WorkOS staging redirect entry.
+- Repeated invalid-login error for a valid user: create a fresh password setup
+  link or wait 15 minutes if the account was locked by repeated failures.

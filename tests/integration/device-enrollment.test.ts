@@ -25,17 +25,15 @@ describeWithDatabase("database-enforced device enrollment", () => {
     businessId = business.rows[0].id;
     const users = await migrationPool.query<{ id: string; role: string }>(
       `INSERT INTO app_users (
-         business_id, workos_user_id, email, display_name, role, status
+         business_id, email, display_name, role, status
        )
        VALUES
-         ($1, $2, $3, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE'),
-         ($1, $4, $5, 'Test Operator', 'STORE_OPERATOR', 'ACTIVE')
+         ($1, $2, 'Test Owner', 'BUSINESS_OWNER', 'ACTIVE'),
+         ($1, $3, 'Test Operator', 'STORE_OPERATOR', 'ACTIVE')
        RETURNING id, role`,
       [
         businessId,
-        `owner-workos-${suffix}`,
         `owner-${suffix}@example.com`,
-        `operator-workos-${suffix}`,
         `operator-${suffix}@example.com`,
       ],
     );

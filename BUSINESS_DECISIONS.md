@@ -632,11 +632,13 @@ Use managed services for:
 - application hosting;
 - PostgreSQL database;
 - automated backup/point-in-time recovery;
-- identity/authentication;
 - object storage when product images are enabled;
 - logs/error monitoring.
 
 Do not self-host a server or database in the shop or on a personal MacBook.
+Identity is application-managed because this is a private internal tool: there
+is no public registration, every person has an individual account, and owners
+issue single-use setup links.
 
 Accepted budget guardrails:
 
@@ -645,7 +647,7 @@ Accepted budget guardrails:
 - messaging, payment-processing and one-time development costs are tracked separately;
 - operational simplicity and recoverability take priority over the cheapest possible hosting.
 
-The framework/provider evaluation will compare no more than three options against security, managed PostgreSQL/PITR, passkey/MFA support, PWA compatibility, monitoring, cost and exit/migration capability.
+The framework/provider evaluation will compare no more than three options against security, managed PostgreSQL/PITR, PWA compatibility, monitoring, cost and exit/migration capability. Stronger authentication such as passkeys or MFA remains a later hardening decision if access expands beyond the small internal team.
 
 ### Operational responsibility
 
